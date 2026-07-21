@@ -110,3 +110,69 @@ describe("kid: users + review + cover", () => {
     expect(row?.first_seen_at).toBeGreaterThan(0);
   });
 });
+
+describe("kid: home + sessions", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("GET /api/home returns stats + due_count + unit progress", async () => {
+    const res = await SELF.fetch("https://example.com/api/home?user_id=1");
+    const data = await json(res);
+    expect(res.status).toBe(200);
+    expect(data).toHaveProperty("stars");
+    expect(data).toHaveProperty("streak_days");
+    expect(data).toHaveProperty("due_count");
+    expect(Array.isArray(data.units)).toBe(true);
+  });
+
+  it("GET /api/home with missing user_id => 400", async () => {
+    const res = await SELF.fetch("https://example.com/api/home");
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /api/session/due returns only due words", async () => {
+    const wid = await seedWord("dog", "狗");
+    await env.DB.prepare(
+      "INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses) VALUES (1,?,0,0,0,0)"
+    ).bind(wid).run();
+    const res = await SELF.fetch("https://example.com/api/session/due?user_id=1");
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.some((w: any) => w.term === "dog")).toBe(true);
+  });
+
+  it("GET /api/session/unit returns uncovered words; covered ones excluded", async () => {
+    const u = await env.DB.prepare(
+      "INSERT INTO units (book, unit) VALUES ('书A','Unit 1') RETURNING id"
+    ).first<{ id: number }>();
+    const w1 = await seedWord("elephant", "大象");
+    const w2 = await seedWord("fish", "鱼");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?)").bind(u!.id, w1, u!.id, w2).run();
+    await env.DB.prepare(
+      "INSERT INTO user_unit_word_seen (user_id, unit_id, word_id, first_seen_at) VALUES (1,?,?,1)"
+    ).bind(u!.id, w1).run();
+    const res = await SELF.fetch("https://example.com/api/session/unit", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, unit_id: u!.id }),
+    });
+    const data: any = await json(res);
+    const terms = data.map((w: any) => w.term);
+    expect(terms).toContain("fish");
+    expect(terms).not.toContain("elephant");
+  });
+
+  it("duplicate word across units is tested at least once per unit", async () => {
+    const u1 = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('书','U1') RETURNING id").first<{ id: number }>();
+    const u2 = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('书','U2') RETURNING id").first<{ id: number }>();
+    const wid = await seedWord("grape", "葡萄");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?)").bind(u1!.id, wid, u2!.id, wid).run();
+    await env.DB.prepare(
+      "INSERT INTO user_unit_word_seen (user_id, unit_id, word_id, first_seen_at) VALUES (1,?,?,1)"
+    ).bind(u1!.id, wid).run();
+    const res = await SELF.fetch("https://example.com/api/session/unit", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, unit_id: u2!.id }),
+    });
+    const data: any = await json(res);
+    expect(data.some((w: any) => w.term === "grape")).toBe(true);
+  });
+});
