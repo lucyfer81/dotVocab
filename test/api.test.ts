@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { SCHEMA_SQL } from "./schema";
+import { adminToken } from "./helpers";
 
 async function applySchema() {
   // D1Database.exec() trips an instrumentation bug under the current workerd
@@ -26,5 +27,19 @@ describe("health", () => {
     const res = await SELF.fetch("https://example.com/api/health");
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual({ ok: true });
+  });
+});
+
+describe("admin auth", () => {
+  beforeAll(async () => { await applySchema(); });
+  it("rejects /api/admin/* without token", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/units");
+    expect(res.status).toBe(401);
+  });
+  it("accepts with correct x-admin-token", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/units", {
+      headers: { "x-admin-token": adminToken },
+    });
+    expect(res.status).toBe(200);
   });
 });
