@@ -77,4 +77,26 @@ admin.get("/progress", async (c) => {
   return c.json(out);
 });
 
+admin.get("/words", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    "SELECT id, term, pos, meaning_cn, example_en, example_cn FROM words ORDER BY term"
+  ).all();
+  return c.json(results);
+});
+
+admin.put("/words/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await c.req.json<{ pos: string | null; meaning_cn: string; example_en: string | null; example_cn: string | null }>();
+  await c.env.DB.prepare(
+    "UPDATE words SET pos=?, meaning_cn=?, example_en=?, example_cn=? WHERE id=?"
+  ).bind(body.pos ?? null, body.meaning_cn, body.example_en ?? null, body.example_cn ?? null, id).run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/words/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  await c.env.DB.prepare("DELETE FROM words WHERE id=?").bind(id).run();
+  return c.json({ ok: true });
+});
+
 export { admin };

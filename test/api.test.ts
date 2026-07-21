@@ -225,3 +225,48 @@ describe("admin: units + import", () => {
     expect(data.errors[0].line).toBe(2);
   });
 });
+
+describe("admin: words CRUD + progress", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("GET /api/admin/words lists words", async () => {
+    await seedWord("listword", "列词");
+    const res = await SELF.fetch("https://example.com/api/admin/words", {
+      headers: { "x-admin-token": adminToken },
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.some((w: any) => w.term === "listword")).toBe(true);
+  });
+
+  it("PUT /api/admin/words/:id updates meaning", async () => {
+    const wid = await seedWord("editme", "旧");
+    const res = await SELF.fetch(`https://example.com/api/admin/words/${wid}`, {
+      method: "PUT", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ pos: "n", meaning_cn: "新", example_en: null, example_cn: null }),
+    });
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare("SELECT meaning_cn FROM words WHERE id=?").bind(wid).first<{ meaning_cn: string }>();
+    expect(row?.meaning_cn).toBe("新");
+  });
+
+  it("DELETE /api/admin/words/:id removes the word", async () => {
+    const wid = await seedWord("delme", "删");
+    const res = await SELF.fetch(`https://example.com/api/admin/words/${wid}`, {
+      method: "DELETE", headers: { "x-admin-token": adminToken },
+    });
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare("SELECT id FROM words WHERE id=?").bind(wid).first();
+    expect(row).toBeNull();
+  });
+
+  it("GET /api/admin/progress returns both kids", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/progress", {
+      headers: { "x-admin-token": adminToken },
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.length).toBe(2);
+    expect(data.every((u: any) => "stars" in u && "mastered" in u)).toBe(true);
+  });
+});
