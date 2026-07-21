@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { adminAuth } from "./auth";
+import { kid } from "./kid";
 
 export interface Env {
   DB: D1Database;
@@ -10,6 +11,8 @@ export interface Env {
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/api/health", (c) => c.json({ ok: true }));
+
+app.route("/api", kid);
 
 // Placeholder so the auth gate is testable; full admin routes replace this in a later unit.
 const adminPlaceholder = new Hono<{ Bindings: Env }>();
