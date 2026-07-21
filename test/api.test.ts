@@ -176,3 +176,52 @@ describe("kid: home + sessions", () => {
     expect(data.some((w: any) => w.term === "grape")).toBe(true);
   });
 });
+
+describe("admin: units + import", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("POST /api/admin/units creates a unit", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/units", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ book: "人教PEP三上", unit: "Unit 1", sort_key: 1 }),
+    });
+    const data = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.id).toBeGreaterThan(0);
+  });
+
+  it("POST /api/admin/import upserts words, links to unit, dedupes repeats", async () => {
+    const u = await env.DB.prepare(
+      "INSERT INTO units (book, unit) VALUES ('书X','Unit 1') RETURNING id"
+    ).first<{ id: number }>();
+    const csv = "apple,苹果,n\nbanana,香蕉\napple,苹果"; // apple twice
+    const res = await SELF.fetch("https://example.com/api/admin/import", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ unit_id: u!.id, csv }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.inserted).toBe(2);     // apple + banana
+    expect(data.updated).toBe(1);      // apple second occurrence updates
+    expect(data.linked).toBe(2);       // two distinct words linked to unit
+    const cnt = await env.DB.prepare(
+      "SELECT COUNT(*) as n FROM unit_words WHERE unit_id=?"
+    ).bind(u!.id).first<{ n: number }>();
+    expect(cnt?.n).toBe(2);
+  });
+
+  it("import reports row errors but still imports good rows", async () => {
+    const u = await env.DB.prepare(
+      "INSERT INTO units (book, unit) VALUES ('书Y','Unit 1') RETURNING id"
+    ).first<{ id: number }>();
+    const csv = "cat,猫\nbad"; // line 2 missing meaning
+    const res = await SELF.fetch("https://example.com/api/admin/import", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ unit_id: u!.id, csv }),
+    });
+    const data: any = await json(res);
+    expect(data.inserted).toBe(1);
+    expect(data.errors.length).toBe(1);
+    expect(data.errors[0].line).toBe(2);
+  });
+});
