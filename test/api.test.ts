@@ -270,3 +270,32 @@ describe("admin: words CRUD + progress", () => {
     expect(data.every((u: any) => "stars" in u && "mastered" in u)).toBe(true);
   });
 });
+
+describe("admin: word delete cascades to avoid orphan inflation", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("deleting a word removes its unit_links + state; home total no longer inflated", async () => {
+    const u = await env.DB.prepare(
+      "INSERT INTO units (book, unit) VALUES ('书D','U1') RETURNING id"
+    ).first<{ id: number }>();
+    const wid = await seedWord("delcascade", "删词");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?)").bind(u!.id, wid).run();
+    await env.DB.prepare(
+      "INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses) VALUES (1,?,1,1,0,0)"
+    ).bind(wid).run();
+
+    let home: any = await json(await SELF.fetch("https://example.com/api/home?user_id=1"));
+    expect(home.units.find((x: any) => x.unit_id === u!.id)?.total).toBe(1);
+
+    const res = await SELF.fetch(`https://example.com/api/admin/words/${wid}`, {
+      method: "DELETE", headers: { "x-admin-token": adminToken },
+    });
+    expect(res.status).toBe(200);
+
+    expect(await env.DB.prepare("SELECT word_id FROM unit_words WHERE word_id=?").bind(wid).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT word_id FROM user_word_state WHERE word_id=?").bind(wid).first()).toBeNull();
+
+    home = await json(await SELF.fetch("https://example.com/api/home?user_id=1"));
+    expect(home.units.find((x: any) => x.unit_id === u!.id)?.total).toBe(0);
+  });
+});

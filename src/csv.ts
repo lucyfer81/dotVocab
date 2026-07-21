@@ -24,7 +24,7 @@ function splitFields(line: string): string[] {
 export function parseWordCsv(text: string): ParseResult {
   const rows: WordRow[] = [];
   const errors: ParseError[] = [];
-  const lines = text.split(/\r?\n/);
+  const lines = text.replace(/^﻿/, "").split(/\r?\n/);
   lines.forEach((rawLine, i) => {
     const lineNo = i + 1;
     const line = rawLine.trim();

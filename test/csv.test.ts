@@ -40,4 +40,11 @@ describe("parseWordCsv", () => {
     expect(errors.length).toBe(1);
     expect(errors[0].line).toBe(2);
   });
+
+  it("strips a leading UTF-8 BOM from the first term", () => {
+    const { rows, errors } = parseWordCsv("﻿apple,苹果");
+    expect(errors).toEqual([]);
+    expect(rows[0].term).toBe("apple");
+    expect(rows[0].meaning_cn).toBe("苹果");
+  });
 });

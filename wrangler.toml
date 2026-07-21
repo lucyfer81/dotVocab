@@ -12,6 +12,3 @@ not_found_handling = "single-page-application"
 binding = "DB"
 database_name = "dotvocab"
 database_id = "REPLACE_AFTER_D1_CREATE"
-
-[vars]
-ADMIN_TOKEN = "test-admin-token"

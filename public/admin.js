@@ -49,7 +49,7 @@ async function dashboard() {
   </section>`);
   wrap.querySelector("#out").onclick = () => { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(); };
   wrap.querySelector("#prog").innerHTML = progress.map(u =>
-    `<div class="stat">${u.avatar} ${esc(u.name)} — ⭐${u.stars} 🔥${u.streak_days} 已掌握${u.mastered}</div>`).join("");
+    `<div class="stat">${esc(u.avatar)} ${esc(u.name)} — ⭐${u.stars} 🔥${u.streak_days} 已掌握${u.mastered}</div>`).join("");
   const sel = wrap.querySelector("#target");
   units.forEach(u => { const o=document.createElement("option"); o.value=u.id; o.textContent=`${u.book} · ${u.unit}`; sel.appendChild(o); });
   wrap.querySelector("#addunit").onclick = async () => {

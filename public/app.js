@@ -1,5 +1,7 @@
 const API = "/api";
-let currentUser = JSON.parse(localStorage.getItem("dotvocab_user") || "null");
+let currentUser;
+try { currentUser = JSON.parse(localStorage.getItem("dotvocab_user") || "null"); }
+catch { currentUser = null; }
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
@@ -36,7 +38,7 @@ async function showIdentity() {
   const wrap = $(`<section><h1>谁在背单词？</h1><div class="grid"></div></section>`);
   const grid = wrap.querySelector(".grid");
   users.forEach((u) => {
-    const card = $(`<button class="card user"><div class="avatar">${u.avatar}</div><div>${escapeHtml(u.name)}</div></button>`);
+    const card = $(`<button class="card user"><div class="avatar">${escapeHtml(u.avatar)}</div><div>${escapeHtml(u.name)}</div></button>`);
     card.onclick = () => {
       currentUser = u;
       localStorage.setItem("dotvocab_user", JSON.stringify(u));
@@ -52,7 +54,7 @@ async function showHome() {
   const home = await api(`/home?user_id=${currentUser.id}`);
   const wrap = $(`<section>
     <header class="top"><button class="link" id="switch">切换用户</button>
-      <div class="me">${currentUser.avatar} ${escapeHtml(currentUser.name)}</div></header>
+      <div class="me">${escapeHtml(currentUser.avatar)} ${escapeHtml(currentUser.name)}</div></header>
     <div class="stats"><div class="stat">⭐ ${home.stars}</div><div class="stat">🔥 ${home.streak_days}</div></div>
     <button class="big" id="review">今日复习 (${home.due_count})</button>
     <h2>按课本学</h2>
@@ -83,6 +85,7 @@ async function startSession({ mode, unit_id, title }) {
   else words = await api(`/session/unit`, { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id }) });
   const queue = words.slice();
   const retry = [];
+  const wrongCount = {}; // per-word wrong-attempt count, to cap retries
   const stats = { done: 0, correct: 0 };
   if (queue.length === 0) { render($(`<section><h2>${title || "今日复习"}</h2><p>没有要学的词啦 🎉</p><button class="big" id="back">返回</button></section>`)); document.getElementById("back").onclick = showHome; return; }
   await nextCard();
@@ -126,13 +129,16 @@ async function startSession({ mode, unit_id, title }) {
       </section>`);
       render(card);
       const inp = card.querySelector("#ans"); inp.focus();
+      let submitted = false; // guard against double Enter / double-tap
       card.querySelector("#submit").onclick = submit;
       inp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
 
       async function submit() {
+        if (submitted) return; // ignore repeated submits (double Enter)
+        submitted = true;
+        card.querySelector("#submit").onclick = null;
         const ans = inp.value.trim().toLowerCase();
         const correct = ans === w.term.toLowerCase();
-        card.querySelector("#submit").onclick = null;
         await api("/review", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, word_id: w.id, correct }) });
         if (unit_id) await api("/cover", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id, word_id: w.id }) });
         const fb = card.querySelector("#fb");
@@ -142,10 +148,11 @@ async function startSession({ mode, unit_id, title }) {
           speak(w.term);
           setTimeout(() => { resolve(nextCard()); }, 700);
         } else {
+          wrongCount[w.id] = (wrongCount[w.id] || 0) + 1;
           const cmp = diff(w.term.toLowerCase(), ans);
           fb.innerHTML = `<div class="bad">✗ 正确：<span class="cmp">${cmp}</span></div>`;
           speak(w.term);
-          retry.push(w);
+          if (wrongCount[w.id] < 3) retry.push(w); // cap so kids can't soft-lock
           const next = $(`<button class="big" id="next">下一题</button>`);
           card.querySelector("#submit").replaceWith(next);
           next.onclick = () => resolve(nextCard());
@@ -158,7 +165,7 @@ async function startSession({ mode, unit_id, title }) {
     let out = "";
     for (let i = 0; i < answer.length; i++) {
       const a = answer[i], g = given[i] || "";
-      out += g === a ? `<b class="ok">${a}</b>` : `<b class="bad">${a}</b>`;
+      out += g === a ? `<b class="ok">${escapeHtml(a)}</b>` : `<b class="bad">${escapeHtml(a)}</b>`;
     }
     return out;
   }

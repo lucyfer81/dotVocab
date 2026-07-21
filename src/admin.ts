@@ -95,7 +95,15 @@ admin.put("/words/:id", async (c) => {
 
 admin.delete("/words/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  await c.env.DB.prepare("DELETE FROM words WHERE id=?").bind(id).run();
+  const db = c.env.DB;
+  // Cascade so deleting a word doesn't leave orphans that would inflate unit
+  // totals (home progress) or mastered counts.
+  await db.batch([
+    db.prepare("DELETE FROM user_unit_word_seen WHERE word_id=?").bind(id),
+    db.prepare("DELETE FROM user_word_state WHERE word_id=?").bind(id),
+    db.prepare("DELETE FROM unit_words WHERE word_id=?").bind(id),
+    db.prepare("DELETE FROM words WHERE id=?").bind(id),
+  ]);
   return c.json({ ok: true });
 });
 
