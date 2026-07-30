@@ -23,3 +23,25 @@ h1,h2,h3 { margin:0.4em 0; }
 .ok { color:var(--ok); } .bad { color:var(--bad); }
 .cmp { font-family:monospace; font-size:26px; letter-spacing:2px; }
 .progress { height:6px; background:#e5e7eb; border-radius:3px; margin:8px 0; }
+
+/* ---------- ≥1024px: iPad 横版 / 笔记本 适配 ---------- */
+@media (min-width: 1024px) {
+  #app { max-width: 920px; padding: 24px; }
+  body.admin #app { max-width: 1120px; }          /* 家长端笔记本更宽，Task 5 启用 */
+  .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }  /* 自动 4 列 @920px */
+
+  h1 { font-size: 30px; } h2 { font-size: 24px; } h3 { font-size: 20px; }
+  .stat { font-size: 20px; padding: 10px 18px; }
+  .big, .card { font-size: 22px; padding: 18px; }
+  #review { padding: 22px; font-size: 26px; font-weight: 600; }   /* 今日复习 hero，Task 3 关联 */
+  .avatar { font-size: 56px; }
+  .id-grid { max-width: 460px; margin: 0 auto; }                 /* 身份页封顶，Task 3 关联 */
+  .meaning.big { font-size: 32px; }
+  .ex { max-width: 60ch; font-size: 18px; }
+  .cmp { font-size: 32px; }
+  .study input { max-width: 480px; }
+  .fb { font-size: 22px; }
+
+  .admin-cols { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }  /* Task 5 */
+  .admin-right { max-height: 72vh; overflow: auto; }                                               /* Task 5 */
+}
