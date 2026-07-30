@@ -35,7 +35,7 @@ function escapeHtml(s) {
 // ---------- identity ----------
 async function showIdentity() {
   const users = await api("/users");
-  const wrap = $(`<section><h1>谁在背单词？</h1><div class="grid"></div></section>`);
+  const wrap = $(`<section><h1>谁在背单词？</h1><div class="grid id-grid"></div></section>`);
   const grid = wrap.querySelector(".grid");
   users.forEach((u) => {
     const card = $(`<button class="card user"><div class="avatar">${escapeHtml(u.avatar)}</div><div>${escapeHtml(u.name)}</div></button>`);
@@ -55,7 +55,7 @@ async function showHome() {
   const wrap = $(`<section>
     <header class="top"><button class="link" id="switch">切换用户</button>
       <div class="me">${escapeHtml(currentUser.avatar)} ${escapeHtml(currentUser.name)}</div></header>
-    <div class="stats"><div class="stat">⭐ ${home.stars}</div><div class="stat">🔥 ${home.streak_days}</div></div>
+    <div class="stats"><div class="stat">⭐ ${home.stars}</div><div class="stat">🔥 ${home.streak_days}</div><div class="stat">📥 待复习 ${home.due_count}</div></div>
     <button class="big" id="review">今日复习 (${home.due_count})</button>
     <h2>按课本学</h2>
     <div class="units"></div>
