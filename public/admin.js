@@ -35,17 +35,23 @@ async function dashboard() {
   const wrap = $(`<section>
     <header class="top"><h1>家长后台</h1><button class="link" id="out">退出</button></header>
     <h2>进度</h2><div id="prog"></div>
-    <h2>新建单元</h2>
-    <input id="book" placeholder="课本（如 人教PEP三上）" />
-    <input id="unit" placeholder="单元（如 Unit 1）" />
-    <input id="sort" placeholder="排序号（数字，可空）" />
-    <button class="big" id="addunit">添加单元</button>
-    <h2>导入单词到单元</h2>
-    <select id="target"></select>
-    <textarea id="csv" rows="6" placeholder="每行: 英文,中文释义,词性,例句英,例句中&#10;例: apple,苹果,n&#10;banana,香蕉"></textarea>
-    <button class="big" id="imp">导入</button>
-    <pre id="impresult" class="muted"></pre>
-    <h2>词库 (${words.length})</h2><div id="wlist"></div>
+    <div class="admin-cols">
+      <div class="admin-left">
+        <h2>新建单元</h2>
+        <input id="book" placeholder="课本（如 人教PEP三上）" />
+        <input id="unit" placeholder="单元（如 Unit 1）" />
+        <input id="sort" placeholder="排序号（数字，可空）" />
+        <button class="big" id="addunit">添加单元</button>
+        <h2>导入单词到单元</h2>
+        <select id="target"></select>
+        <textarea id="csv" rows="6" placeholder="每行: 英文,中文释义,词性,例句英,例句中&#10;例: apple,苹果,n&#10;banana,香蕉"></textarea>
+        <button class="big" id="imp">导入</button>
+        <pre id="impresult" class="muted"></pre>
+      </div>
+      <div class="admin-right">
+        <h2>词库 (${words.length})</h2><div id="wlist"></div>
+      </div>
+    </div>
   </section>`);
   wrap.querySelector("#out").onclick = () => { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(); };
   wrap.querySelector("#prog").innerHTML = progress.map(u =>
