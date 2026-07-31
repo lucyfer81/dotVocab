@@ -104,8 +104,11 @@ async function startSession({ mode, unit_id, title }) {
       const card = $(`<section class="study">
         <h2>${escapeHtml(title || "今日复习")}</h2>
         <div class="wordcard">
-          <div class="term">${escapeHtml(w.term)} <button class="link" id="play">🔊</button></div>
-          <div class="meaning">${escapeHtml(w.pos ? w.pos + ". " : "")}${escapeHtml(w.meaning_cn)}</div>
+          <button class="tap-word" id="play" aria-label="朗读单词">
+            <span class="term">${escapeHtml(w.term)}</span><span class="audio-hint">🔊</span>
+            <small class="tap-hint">点单词朗读</small>
+          </button>
+          <div class="meaning">${w.pos ? `<span class="pos">${escapeHtml(w.pos)}.</span>` : ""}${escapeHtml(w.meaning_cn)}</div>
           ${w.example_en ? `<div class="ex">${escapeHtml(w.example_en)}<br><span class="muted">${escapeHtml(w.example_cn || "")}</span></div>` : ""}
         </div>
         <button class="big" id="start">开始拼写</button>
