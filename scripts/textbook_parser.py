@@ -105,3 +105,13 @@ def parse_lines(lines):
             units[cur].extend(align_row(pending_en, row))
             pending_en = None
     return units
+
+
+def merge_meanings(meanings):
+    """仅去重完全相同的释义，保留首次出现顺序，用「；」连接。
+    不做子串剔除——子串会误删独立义项（如「水」是「给…浇水」子串）。"""
+    seen = []
+    for m in meanings:
+        if m not in seen:
+            seen.append(m)
+    return "；".join(seen)

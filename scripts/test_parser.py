@@ -112,3 +112,15 @@ def test_parse_lines_two_units():
     assert set(got.keys()) == {1, 2}
     assert got[1] == [("cat", "猫")]
     assert got[2] == [("dog", "狗")]
+
+
+from textbook_parser import merge_meanings
+
+
+def test_merge_meanings_keeps_distinct_senses():
+    # water: U3 给…浇水 / U4 水 —— 语义独立，都保留
+    assert merge_meanings(["给…浇水", "水"]) == "给…浇水；水"
+
+
+def test_merge_meanings_exact_dedupe():
+    assert merge_meanings(["学习", "学习", "学习;研读"]) == "学习；学习;研读"
