@@ -104,7 +104,7 @@ async function startSession({ mode, unit_id, title }) {
       const card = $(`<section class="study">
         <h2>${escapeHtml(title || "今日复习")}</h2>
         <div class="wordcard">
-          <button class="tap-word" id="play" aria-label="朗读单词">
+          <button class="tap-word" id="play" aria-label="朗读 ${escapeHtml(w.term)}">
             <span class="term">${escapeHtml(w.term)}</span><span class="audio-hint">🔊</span>
             <small class="tap-hint">点单词朗读</small>
           </button>
