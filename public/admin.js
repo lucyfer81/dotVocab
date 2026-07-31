@@ -101,7 +101,7 @@ async function dashboard(flash) {
     const user_ids = userVal === "all" ? progress.map(u => u.id) : [Number(userVal)];
     const userLabel = userVal === "all" ? "两个孩子" : (progress.find(u => String(u.id) === userVal)?.name || "");
     const body = { scope: rScope.value, user_ids };
-    let targetLabel = "全部单元";
+    let targetLabel = "全局";
     if (rScope.value === "unit") { body.unit_id = Number(rTarget.value); targetLabel = rTarget.selectedOptions[0]?.textContent || ""; }
     else if (rScope.value === "book") { body.book = rTarget.value; targetLabel = rTarget.value; }
     if (!confirm(`确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度？\n相关单词会重新出现；已掌握度与星星保留。`)) return;

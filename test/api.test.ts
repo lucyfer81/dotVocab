@@ -325,7 +325,7 @@ describe("admin: reset-progress", () => {
     expect(res.status).toBe(401);
   });
 
-  it("validates params => 400 (bad scope / unit-missing-unit_id / empty user_ids / book-missing-book)", async () => {
+  it("validates params => 400 (bad scope / unit-missing-unit_id / empty or non-pos-int user_ids / book-missing-book)", async () => {
     const h = { "content-type": "application/json", "x-admin-token": adminToken };
     const base = "https://example.com/api/admin/reset-progress";
     const bad1 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "weird", user_ids: [901] }) });
@@ -336,6 +336,11 @@ describe("admin: reset-progress", () => {
     expect(bad3.status).toBe(400);
     const bad4 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "book", user_ids: [901] }) });
     expect(bad4.status).toBe(400);
+    // user_ids elements must be positive integers (guards the parameterized IN list)
+    const bad5 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "global", user_ids: [1.5] }) });
+    expect(bad5.status).toBe(400);
+    const bad6 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "global", user_ids: [0] }) });
+    expect(bad6.status).toBe(400);
   });
 
   it("unit scope clears only that unit's coverage; leaves state + stats + other unit", async () => {
