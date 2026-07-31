@@ -17,3 +17,28 @@ def normalize_term(s: str) -> str:
 
 def clean_meaning(s: str) -> str:
     return s.strip().rstrip(TRAIL_PUNCT).strip()
+
+
+def cluster_rows(words, tol=3.0):
+    rows = []
+    for w in sorted(words, key=lambda x: x["top"]):
+        if rows and abs(w["top"] - rows[-1][0]["top"]) <= tol:
+            rows[-1].append(w)
+        else:
+            rows.append([w])
+    for r in rows:
+        r.sort(key=lambda x: x["x0"])
+    return rows
+
+
+def row_text(row) -> str:
+    return "".join(w["text"] for w in row)
+
+
+def is_cjk_row(row) -> bool:
+    return bool(CJK_RE.search(row_text(row)))
+
+
+def is_latin_row(row) -> bool:
+    t = row_text(row)
+    return bool(LATIN_RE.search(t)) and not CJK_RE.search(t)
