@@ -651,7 +651,8 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
-    units = parse_lines(build_lines(args.pdf))   # {n: [(term, meaning)]}
+    anomalies = []
+    units = parse_lines(build_lines(args.pdf), anomalies=anomalies)  # {n: [(term, meaning)]}
     unit_order = sorted(units)
 
     # 跨单元去重
@@ -713,6 +714,10 @@ def main():
             f.write("\n## 跳过（term/释义为空）：\n")
             for n, term, meaning in skipped:
                 f.write(f"  Unit {n}: term={term!r} meaning={meaning!r}\n")
+        if anomalies:
+            f.write("\n## 对齐异常（英文/中文条目数不匹配或孤行，需人工核查）：\n")
+            for unit_no, en, zh, reason in anomalies:
+                f.write(f"  Unit {unit_no}: {reason} | EN={en!r} ZH={zh!r}\n")
 
     # seed.sql
     seed = generate_seed_sql(BOOK, unit_order, words, unit_words, created_at)
