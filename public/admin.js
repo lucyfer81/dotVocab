@@ -35,6 +35,14 @@ async function dashboard() {
   const wrap = $(`<section>
     <header class="top"><h1>家长后台</h1><button class="link" id="out">退出</button></header>
     <h2>进度</h2><div id="prog"></div>
+    <h2>重置进度</h2>
+    <div id="reset">
+      <select id="r_scope"><option value="unit">按单元</option><option value="book">按课本</option><option value="global">全局</option></select>
+      <select id="r_target"></select>
+      <select id="r_user"></select>
+      <button class="big" id="r_go">重置进度</button>
+      <pre id="r_result" class="muted"></pre>
+    </div>
     <div class="admin-cols">
       <div class="admin-left">
         <h2>新建单元</h2>
@@ -68,6 +76,40 @@ async function dashboard() {
       wrap.querySelector("#impresult").textContent = JSON.stringify(r);
       dashboard();
     } catch(e){ wrap.querySelector("#impresult").textContent = e.message; }
+  };
+  // ---- 重置进度面板 ----
+  const rUser = wrap.querySelector("#r_user");
+  progress.forEach(u => { const o = document.createElement("option"); o.value = u.id; o.textContent = `${u.avatar} ${u.name}`; rUser.appendChild(o); });
+  const rBoth = document.createElement("option"); rBoth.value = "all"; rBoth.textContent = "两个孩子"; rUser.appendChild(rBoth);
+
+  const rScope = wrap.querySelector("#r_scope");
+  const rTarget = wrap.querySelector("#r_target");
+  function fillResetTarget() {
+    rTarget.innerHTML = "";
+    if (rScope.value === "global") { rTarget.style.display = "none"; return; }
+    rTarget.style.display = "";
+    const items = rScope.value === "unit"
+      ? units.map(u => ({ value: u.id, label: `${u.book} · ${u.unit}` }))
+      : [...new Set(units.map(u => u.book))].map(b => ({ value: b, label: b }));
+    items.forEach(it => { const o = document.createElement("option"); o.value = it.value; o.textContent = it.label; rTarget.appendChild(o); });
+  }
+  rScope.onchange = fillResetTarget;
+  fillResetTarget();
+
+  wrap.querySelector("#r_go").onclick = async () => {
+    const userVal = rUser.value;
+    const user_ids = userVal === "all" ? progress.map(u => u.id) : [Number(userVal)];
+    const userLabel = userVal === "all" ? "两个孩子" : (progress.find(u => String(u.id) === userVal)?.name || "");
+    const body = { scope: rScope.value, user_ids };
+    let targetLabel = "全部单元";
+    if (rScope.value === "unit") { body.unit_id = Number(rTarget.value); targetLabel = rTarget.selectedOptions[0]?.textContent || ""; }
+    else if (rScope.value === "book") { body.book = rTarget.value; targetLabel = rTarget.value; }
+    if (!confirm(`确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度？\n相关单词会重新出现；已掌握度与星星保留。`)) return;
+    try {
+      const r = await api("/reset-progress", { method: "POST", body: JSON.stringify(body) });
+      wrap.querySelector("#r_result").textContent = `已重置 ${r.deleted} 条覆盖记录`;
+      dashboard();
+    } catch (e) { wrap.querySelector("#r_result").textContent = e.message; }
   };
   wrap.querySelector("#wlist").innerHTML = words.map(w =>
     `<div class="stat">${esc(w.term)} — ${esc(w.meaning_cn)} <span class="muted">${esc(w.pos||"")}</span></div>`).join("");
