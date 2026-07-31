@@ -18,7 +18,7 @@ INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, crea
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('play sports', NULL, '运动', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('read', NULL, '阅读', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('book', NULL, '书', NULL, NULL, 1785463633727);
-INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('study', NULL, '学习；学习;研读', NULL, NULL, 1785463633727);
+INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('study', NULL, '学习;研读', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('hard', NULL, '努力地', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('goal', NULL, '目标;目的', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('want', NULL, '要;想要', NULL, NULL, 1785463633727);
@@ -154,8 +154,7 @@ INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, crea
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('climb the mountain', NULL, '爬山', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('miss', NULL, '怀念;思念', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('the lantern festival', NULL, '元宵节', NULL, NULL, 1785463633727);
-INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('chinese', NULL, '春节', NULL, NULL, 1785463633727);
-INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('new year', NULL, '中国新年', NULL, NULL, 1785463633727);
+INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('chinese new year', NULL, '中国新年', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('holiday', NULL, '假期', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('during', NULL, '在……期间', NULL, NULL, 1785463633727);
 INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('the spring festival', NULL, '春节', NULL, NULL, 1785463633727);
@@ -322,8 +321,7 @@ INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM unit
 INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='climb the mountain'));
 INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='miss'));
 INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='the lantern festival'));
-INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='chinese'));
-INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='new year'));
+INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='chinese new year'));
 INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='holiday'));
 INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='during'));
 INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ((SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 9'), (SELECT id FROM words WHERE term='the spring festival'));
