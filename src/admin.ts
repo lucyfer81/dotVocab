@@ -77,6 +77,37 @@ admin.get("/progress", async (c) => {
   return c.json(out);
 });
 
+admin.post("/reset-progress", async (c) => {
+  const body = await c.req.json<{ scope: string; unit_id?: number; book?: string; user_ids: number[] }>();
+  const user_ids = body.user_ids;
+  if (!Array.isArray(user_ids) || user_ids.length === 0 ||
+      !user_ids.every((n) => Number.isInteger(n) && n > 0)) {
+    return c.json({ error: "user_ids 不合法" }, 400);
+  }
+  const placeholders = user_ids.map(() => "?").join(",");
+  if (body.scope === "unit") {
+    if (!Number.isInteger(body.unit_id) || (body.unit_id as number) <= 0) return c.json({ error: "缺少 unit_id" }, 400);
+    const r = await c.env.DB.prepare(
+      `DELETE FROM user_unit_word_seen WHERE user_id IN (${placeholders}) AND unit_id = ?`
+    ).bind(...user_ids, body.unit_id).run();
+    return c.json({ ok: true, deleted: r.meta.changes ?? 0 });
+  }
+  if (body.scope === "book") {
+    if (!body.book || !body.book.trim()) return c.json({ error: "缺少 book" }, 400);
+    const r = await c.env.DB.prepare(
+      `DELETE FROM user_unit_word_seen WHERE user_id IN (${placeholders}) AND unit_id IN (SELECT id FROM units WHERE book = ?)`
+    ).bind(...user_ids, body.book).run();
+    return c.json({ ok: true, deleted: r.meta.changes ?? 0 });
+  }
+  if (body.scope === "global") {
+    const r = await c.env.DB.prepare(
+      `DELETE FROM user_unit_word_seen WHERE user_id IN (${placeholders})`
+    ).bind(...user_ids).run();
+    return c.json({ ok: true, deleted: r.meta.changes ?? 0 });
+  }
+  return c.json({ error: "scope 不合法" }, 400);
+});
+
 admin.get("/words", async (c) => {
   const { results } = await c.env.DB.prepare(
     "SELECT id, term, pos, meaning_cn, example_en, example_cn FROM words ORDER BY term"

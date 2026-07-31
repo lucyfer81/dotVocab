@@ -299,3 +299,157 @@ describe("admin: word delete cascades to avoid orphan inflation", () => {
     expect(home.units.find((x: any) => x.unit_id === u!.id)?.total).toBe(0);
   });
 });
+
+describe("admin: reset-progress", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  async function seedCoverage(userId: number, unitId: number, wordIds: number[]) {
+    for (const wid of wordIds) {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO user_unit_word_seen (user_id, unit_id, word_id, first_seen_at) VALUES (?,?,?,1)"
+      ).bind(userId, unitId, wid).run();
+    }
+  }
+  async function countCoverage(userId: number) {
+    const r = await env.DB.prepare(
+      "SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=?"
+    ).bind(userId).first<{ n: number }>();
+    return r?.n ?? 0;
+  }
+
+  it("rejects without token => 401", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "global", user_ids: [901] }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("validates params => 400 (bad scope / unit-missing-unit_id / empty user_ids / book-missing-book)", async () => {
+    const h = { "content-type": "application/json", "x-admin-token": adminToken };
+    const base = "https://example.com/api/admin/reset-progress";
+    const bad1 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "weird", user_ids: [901] }) });
+    expect(bad1.status).toBe(400);
+    const bad2 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "unit", user_ids: [901] }) });
+    expect(bad2.status).toBe(400);
+    const bad3 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "global", user_ids: [] }) });
+    expect(bad3.status).toBe(400);
+    const bad4 = await SELF.fetch(base, { method: "POST", headers: h, body: JSON.stringify({ scope: "book", user_ids: [901] }) });
+    expect(bad4.status).toBe(400);
+  });
+
+  it("unit scope clears only that unit's coverage; leaves state + stats + other unit", async () => {
+    const ua = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('重置书','U-A') RETURNING id").first<{ id: number }>();
+    const ub = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('重置书','U-B') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("rscope_a1", "甲");
+    const w2 = await seedWord("rscope_a2", "乙");
+    const w3 = await seedWord("rscope_b1", "丙");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?),(?,?)")
+      .bind(ua!.id, w1, ua!.id, w2, ub!.id, w3).run();
+    await seedCoverage(901, ua!.id, [w1, w2]);
+    await seedCoverage(901, ub!.id, [w3]);
+    await env.DB.prepare(
+      "INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses) VALUES (901,?,3,30,0,0)"
+    ).bind(w1).run();
+    await env.DB.prepare(
+      "INSERT INTO user_stats (user_id, stars, streak_days, last_play_date) VALUES (901,50,7,'2026-07-31')"
+    ).run();
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "unit", unit_id: ua!.id, user_ids: [901] }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.deleted).toBe(2);
+
+    const aLeft = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=901 AND unit_id=?").bind(ua!.id).first<{ n: number }>();
+    expect(aLeft?.n).toBe(0);
+    const bLeft = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=901 AND unit_id=?").bind(ub!.id).first<{ n: number }>();
+    expect(bLeft?.n).toBe(1);
+    const st = await env.DB.prepare("SELECT reps FROM user_word_state WHERE user_id=901 AND word_id=?").bind(w1).first<{ reps: number }>();
+    expect(st?.reps).toBe(3);
+    const stats = await env.DB.prepare("SELECT stars FROM user_stats WHERE user_id=901").first<{ stars: number }>();
+    expect(stats?.stars).toBe(50);
+  });
+
+  it("book scope clears all units in that book; other book intact", async () => {
+    const u1 = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('重置书X','BX1') RETURNING id").first<{ id: number }>();
+    const u2 = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('重置书X','BX2') RETURNING id").first<{ id: number }>();
+    const uY = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('重置书Y','BY1') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("rbook_a", "书甲");
+    const w2 = await seedWord("rbook_b", "书乙");
+    const w3 = await seedWord("rbook_c", "书丙");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?),(?,?)")
+      .bind(u1!.id, w1, u2!.id, w2, uY!.id, w3).run();
+    await seedCoverage(902, u1!.id, [w1]);
+    await seedCoverage(902, u2!.id, [w2]);
+    await seedCoverage(902, uY!.id, [w3]);
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "book", book: "重置书X", user_ids: [902] }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.deleted).toBe(2);
+    const xLeft = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=902 AND unit_id IN (?,?)").bind(u1!.id, u2!.id).first<{ n: number }>();
+    expect(xLeft?.n).toBe(0);
+    const yLeft = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=902 AND unit_id=?").bind(uY!.id).first<{ n: number }>();
+    expect(yLeft?.n).toBe(1);
+  });
+
+  it("global scope clears all coverage for the user; leaves state + stats", async () => {
+    const u = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('重置书G','G1') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("rglob_a", "全甲");
+    const w2 = await seedWord("rglob_b", "全乙");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?)").bind(u!.id, w1, u!.id, w2).run();
+    await seedCoverage(903, u!.id, [w1, w2]);
+    await env.DB.prepare(
+      "INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses) VALUES (903,?,2,4,0,0)"
+    ).bind(w1).run();
+    await env.DB.prepare(
+      "INSERT INTO user_stats (user_id, stars, streak_days, last_play_date) VALUES (903,9,2,'2026-07-31')"
+    ).run();
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "global", user_ids: [903] }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.deleted).toBe(2);
+    expect(await countCoverage(903)).toBe(0);
+    const st = await env.DB.prepare("SELECT reps FROM user_word_state WHERE user_id=903 AND word_id=?").bind(w1).first<{ reps: number }>();
+    expect(st?.reps).toBe(2);
+    const stats = await env.DB.prepare("SELECT stars FROM user_stats WHERE user_id=903").first<{ stars: number }>();
+    expect(stats?.stars).toBe(9);
+  });
+
+  it("user_ids targets only named kids (single then both); deleted counts matched rows", async () => {
+    const u = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('重置书K','K1') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("rkid_a", "孩甲");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?)").bind(u!.id, w1).run();
+    await seedCoverage(904, u!.id, [w1]);
+    await seedCoverage(905, u!.id, [w1]);
+
+    await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "unit", unit_id: u!.id, user_ids: [904] }),
+    });
+    const a = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=904 AND unit_id=?").bind(u!.id).first<{ n: number }>();
+    const b = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=905 AND unit_id=?").bind(u!.id).first<{ n: number }>();
+    expect(a?.n).toBe(0);
+    expect(b?.n).toBe(1);
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "unit", unit_id: u!.id, user_ids: [904, 905] }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.deleted).toBe(1); // 904 已清空，只剩 905 一行
+    const b2 = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=905 AND unit_id=?").bind(u!.id).first<{ n: number }>();
+    expect(b2?.n).toBe(0);
+  });
+});
