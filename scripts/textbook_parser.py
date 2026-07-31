@@ -72,3 +72,36 @@ def align_row(en_row, zh_row):
         meaning = clean_meaning(zh_centers[i][1]) if i < len(zh_centers) else ""
         pairs.append((term, meaning))
     return pairs
+
+
+def parse_lines(lines):
+    """lines: 可迭代的 (text:str, row:list[dict])，跨整篇顺序。
+    返回 {unit_number: [(term, meaning), ...]}。"""
+    units = {}
+    cur = None
+    in_vocab = False
+    pending_en = None
+    for text, row in lines:
+        m = UNIT_HEADER_RE.search(text)
+        if m:
+            cur = int(m.group(1))
+            units.setdefault(cur, [])
+            in_vocab = False
+            pending_en = None
+            continue
+        if SECTION_VOCAB in text:
+            in_vocab = True
+            pending_en = None
+            continue
+        if SECTION_SENTENCE in text or NUMERAL_HEADER_RE.match(text.strip()):
+            in_vocab = False
+            pending_en = None
+            continue
+        if not in_vocab or cur is None:
+            continue
+        if is_latin_row(row):
+            pending_en = row
+        elif is_cjk_row(row) and pending_en is not None:
+            units[cur].extend(align_row(pending_en, row))
+            pending_en = None
+    return units

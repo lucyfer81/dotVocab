@@ -69,3 +69,46 @@ def test_align_row_multiple_phrases_in_line():
         ("be good at", "擅长于"), ("draw", "画画"), ("tell a story", "讲故事"),
         ("dance", "跳舞"), ("player", "运动员"),
     ]
+
+
+from textbook_parser import parse_lines
+
+
+def _mkrow(tokens, top, x0=100, gap=80):
+    boxes = []
+    x = x0
+    for t in tokens:
+        boxes.append(_box(t, x, x + 40, top))
+        x += gap
+    return ("".join(tokens), boxes)
+
+
+def test_parse_lines_one_unit():
+    lines = [
+        _mkrow(["2026", "沪教新版三年级英语上册", "U1", "词句汇总"], 80),
+        _mkrow(["一、核心词汇（要求掌握）"], 109),
+        _mkrow(["new", "school"], 133),
+        _mkrow(["新的", "学校"], 153),
+        _mkrow(["二、核心句子（熟读）"], 181),
+        _mkrow(["Hello"], 200),     # 句子区，应被忽略
+        _mkrow(["你好"], 220),
+    ]
+    assert parse_lines(lines) == {1: [("new", "新的"), ("school", "学校")]}
+
+
+def test_parse_lines_two_units():
+    lines = [
+        _mkrow(["U1", "词句汇总"], 80),
+        _mkrow(["一、核心词汇"], 109),
+        _mkrow(["cat"], 133),
+        _mkrow(["猫"], 153),
+        _mkrow(["二、核心句子"], 181),
+        _mkrow(["U2", "词句汇总"], 260),
+        _mkrow(["一、核心词汇"], 289),
+        _mkrow(["dog"], 313),
+        _mkrow(["狗"], 333),
+    ]
+    got = parse_lines(lines)
+    assert set(got.keys()) == {1, 2}
+    assert got[1] == [("cat", "猫")]
+    assert got[2] == [("dog", "狗")]
