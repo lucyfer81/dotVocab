@@ -124,7 +124,7 @@ UNIT_HEADER_RE = re.compile(r"U(\d+)\s*词句汇总")
 NUMERAL_HEADER_RE = re.compile(r"^\s*[一二三四五六七八九十]+\s*、")
 SECTION_VOCAB = "核心词汇"
 SECTION_SENTENCE = "核心句子"
-TRAIL_PUNCT = "；;。……· •\t,"
+TRAIL_PUNCT = "；;。……· •\t,."
 
 BOOK = "三年级上(沪教新版)"
 
