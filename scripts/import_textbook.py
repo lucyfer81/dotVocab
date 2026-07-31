@@ -94,7 +94,7 @@ def main():
     total_entries = sum(len(units[n]) for n in unit_order)
     with open(os.path.join(args.out, "qa-report.txt"), "w", encoding="utf-8") as f:
         f.write(f"units: {len(unit_order)}  entries: {total_entries}  unique terms: {len(words)}\n\n")
-        f.write("## 同词不同义（人工复核，必要时编辑 words.json 后重跑 --seed）：\n")
+        f.write("## 同词不同义（人工复核；如需修正，直接编辑 scripts/out/seed.sql 与 scripts/seed.example.sql）：\n")
         for t, ms in conflicts:
             f.write(f"  {t}: {ms}\n")
         if skipped:
