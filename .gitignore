@@ -8,3 +8,6 @@ dist/
 .playwright-mcp/
 
 .superpowers/
+.venv/
+scripts/out/
+materials/
