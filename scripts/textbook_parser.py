@@ -42,3 +42,33 @@ def is_cjk_row(row) -> bool:
 def is_latin_row(row) -> bool:
     t = row_text(row)
     return bool(LATIN_RE.search(t)) and not CJK_RE.search(t)
+
+
+def align_row(en_row, zh_row):
+    """按中文词条中心 x 切列，把英文 token 归组到所属中文词条。"""
+    zh_centers = [((w["x0"] + w["x1"]) / 2, w["text"]) for w in zh_row]
+    bounds = []
+    for i in range(len(zh_centers) - 1):
+        bounds.append((zh_centers[i][0] + zh_centers[i + 1][0]) / 2)
+
+    def col_of(x):
+        for i, b in enumerate(bounds):
+            if x < b:
+                return i
+        return len(bounds)
+
+    groups = {}
+    order = []
+    for w in en_row:
+        i = col_of((w["x0"] + w["x1"]) / 2)
+        if i not in groups:
+            groups[i] = []
+            order.append(i)
+        groups[i].append(w["text"])
+
+    pairs = []
+    for i in order:
+        term = normalize_term(" ".join(groups[i]))
+        meaning = clean_meaning(zh_centers[i][1]) if i < len(zh_centers) else ""
+        pairs.append((term, meaning))
+    return pairs
