@@ -124,3 +124,37 @@ def test_merge_meanings_keeps_distinct_senses():
 
 def test_merge_meanings_exact_dedupe():
     assert merge_meanings(["学习", "学习", "学习;研读"]) == "学习；学习;研读"
+
+
+from textbook_parser import sql_quote, generate_seed_sql, generate_reset_sql
+
+
+def test_sql_quote_escapes_single_quote():
+    assert sql_quote("it's") == "'it''s'"
+
+
+def test_generate_seed_sql_structure():
+    sql = generate_seed_sql(
+        book="三年级上(沪教新版)",
+        unit_order=[1, 2],
+        words={"new": "新的", "cat": "猫"},
+        unit_words={1: ["new", "cat"], 2: ["cat"]},
+        created_at=1700000000000,
+    )
+    assert "INSERT OR IGNORE INTO units (book, unit, sort_key) VALUES ('三年级上(沪教新版)', 'Unit 1', 1);" in sql
+    assert "INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) VALUES ('new', NULL, '新的', NULL, NULL, 1700000000000);" in sql
+    assert "(SELECT id FROM units WHERE book='三年级上(沪教新版)' AND unit='Unit 2')" in sql
+    assert "(SELECT id FROM words WHERE term='cat')" in sql
+    # 幂等
+    assert "INSERT OR IGNORE" in sql
+
+
+def test_generate_reset_sql_keeps_users():
+    sql = generate_reset_sql()
+    assert "DELETE FROM unit_words;" in sql
+    assert "DELETE FROM user_unit_word_seen;" in sql
+    assert "DELETE FROM user_word_state;" in sql
+    assert "DELETE FROM words;" in sql
+    assert "DELETE FROM units;" in sql
+    assert "DELETE FROM user_stats;" in sql
+    assert "DELETE FROM users" not in sql  # 保留两个孩子

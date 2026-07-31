@@ -115,3 +115,45 @@ def merge_meanings(meanings):
         if m not in seen:
             seen.append(m)
     return "；".join(seen)
+
+
+def sql_quote(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
+
+
+def generate_seed_sql(book, unit_order, words, unit_words, created_at):
+    lines = [
+        f"-- dotVocab seed: {book}",
+        "-- generated; idempotent (INSERT OR IGNORE)",
+        "",
+    ]
+    for n in unit_order:
+        lines.append(
+            f"INSERT OR IGNORE INTO units (book, unit, sort_key) "
+            f"VALUES ({sql_quote(book)}, {sql_quote(f'Unit {n}')}, {n});"
+        )
+    for term, meaning in words.items():
+        lines.append(
+            f"INSERT OR IGNORE INTO words (term, pos, meaning_cn, example_en, example_cn, created_at) "
+            f"VALUES ({sql_quote(term)}, NULL, {sql_quote(meaning)}, NULL, NULL, {created_at});"
+        )
+    for n in unit_order:
+        for term in unit_words.get(n, []):
+            lines.append(
+                f"INSERT OR IGNORE INTO unit_words (unit_id, word_id) VALUES ("
+                f"(SELECT id FROM units WHERE book={sql_quote(book)} AND unit={sql_quote(f'Unit {n}')}), "
+                f"(SELECT id FROM words WHERE term={sql_quote(term)}));"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def generate_reset_sql():
+    return (
+        "-- dotVocab FULL WIPE (keeps `users`). DESTRUCTIVE.\n"
+        "DELETE FROM unit_words;\n"
+        "DELETE FROM user_unit_word_seen;\n"
+        "DELETE FROM user_word_state;\n"
+        "DELETE FROM words;\n"
+        "DELETE FROM units;\n"
+        "DELETE FROM user_stats;\n"
+    )
