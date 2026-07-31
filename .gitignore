@@ -11,3 +11,5 @@ dist/
 .venv/
 scripts/out/
 materials/
+__pycache__/
+*.pyc
