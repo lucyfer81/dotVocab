@@ -30,7 +30,7 @@ function loginView(msg) {
   render(card);
 }
 
-async function dashboard() {
+async function dashboard(flash) {
   const [units, words, progress] = await Promise.all([api("/units"), api("/words"), api("/progress")]);
   const wrap = $(`<section>
     <header class="top"><h1>家长后台</h1><button class="link" id="out">退出</button></header>
@@ -107,12 +107,12 @@ async function dashboard() {
     if (!confirm(`确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度？\n相关单词会重新出现；已掌握度与星星保留。`)) return;
     try {
       const r = await api("/reset-progress", { method: "POST", body: JSON.stringify(body) });
-      wrap.querySelector("#r_result").textContent = `已重置 ${r.deleted} 条覆盖记录`;
-      dashboard();
+      dashboard(`已重置 ${r.deleted} 条覆盖记录`);
     } catch (e) { wrap.querySelector("#r_result").textContent = e.message; }
   };
   wrap.querySelector("#wlist").innerHTML = words.map(w =>
     `<div class="stat">${esc(w.term)} — ${esc(w.meaning_cn)} <span class="muted">${esc(w.pos||"")}</span></div>`).join("");
+  if (flash) wrap.querySelector("#r_result").textContent = flash;
   render(wrap);
 }
 boot();
