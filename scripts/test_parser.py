@@ -158,3 +158,42 @@ def test_generate_reset_sql_keeps_users():
     assert "DELETE FROM units;" in sql
     assert "DELETE FROM user_stats;" in sql
     assert "DELETE FROM users" not in sql  # 保留两个孩子
+
+
+def test_parse_lines_u10_two_digit():
+    lines = [
+        _mkrow(["U10", "词句汇总"], 80),
+        _mkrow(["一、核心词汇"], 109),
+        _mkrow(["food"], 133),
+        _mkrow(["食物"], 153),
+        _mkrow(["二、核心句子"], 181),
+    ]
+    assert parse_lines(lines) == {10: [("food", "食物")]}
+
+
+def test_parse_lines_records_dropped_column_anomaly():
+    anomalies = []
+    lines = [
+        _mkrow(["U1", "词句汇总"], 80),
+        _mkrow(["一、核心词汇"], 109),
+        _mkrow(["cat"], 133),          # 英文 1 个
+        _mkrow(["猫", "狗"], 153),      # 中文 2 个 → 「狗」列无英文
+        _mkrow(["二、核心句子"], 181),
+    ]
+    units = parse_lines(lines, anomalies=anomalies)
+    assert units == {1: [("cat", "猫")]}
+    assert len(anomalies) == 1
+    assert anomalies[0][0] == 1   # 属于 Unit 1
+
+
+def test_parse_lines_records_dangling_english_anomaly():
+    anomalies = []
+    lines = [
+        _mkrow(["U1", "词句汇总"], 80),
+        _mkrow(["一、核心词汇"], 109),
+        _mkrow(["ghost"], 133),        # 英文行，后面直接进入句子区
+        _mkrow(["二、核心句子"], 181),
+    ]
+    units = parse_lines(lines, anomalies=anomalies)
+    assert units == {1: []}
+    assert len(anomalies) == 1

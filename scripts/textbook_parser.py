@@ -74,26 +74,38 @@ def align_row(en_row, zh_row):
     return pairs
 
 
-def parse_lines(lines):
+def parse_lines(lines, anomalies=None):
     """lines: 可迭代的 (text:str, row:list[dict])，跨整篇顺序。
-    返回 {unit_number: [(term, meaning), ...]}。"""
+    返回 {unit_number: [(term, meaning), ...]}。
+
+    若传入 anomalies（list），则把对齐异常以 (unit, en_text, zh_text, reason)
+    追加进去，供 CLI 的 QA 报告使用（spec §8：不静默吞错）。
+    不传时行为与原版完全一致。"""
     units = {}
     cur = None
     in_vocab = False
     pending_en = None
+
+    def _flush_pending(reason):
+        if pending_en is not None and anomalies is not None:
+            anomalies.append((cur, row_text(pending_en), "", reason))
+
     for text, row in lines:
         m = UNIT_HEADER_RE.search(text)
         if m:
+            _flush_pending("英文行后无中文释义")
             cur = int(m.group(1))
             units.setdefault(cur, [])
             in_vocab = False
             pending_en = None
             continue
         if SECTION_VOCAB in text:
+            _flush_pending("英文行后无中文释义")
             in_vocab = True
             pending_en = None
             continue
         if SECTION_SENTENCE in text or NUMERAL_HEADER_RE.match(text.strip()):
+            _flush_pending("英文行后无中文释义")
             in_vocab = False
             pending_en = None
             continue
@@ -102,8 +114,17 @@ def parse_lines(lines):
         if is_latin_row(row):
             pending_en = row
         elif is_cjk_row(row) and pending_en is not None:
-            units[cur].extend(align_row(pending_en, row))
+            pairs = align_row(pending_en, row)
+            if anomalies is not None and (
+                len(pairs) != len(row) or any(not t or not m for t, m in pairs)
+            ):
+                anomalies.append(
+                    (cur, row_text(pending_en), row_text(row),
+                     "对齐行英文/中文条目数不匹配或存在空值")
+                )
+            units[cur].extend(pairs)
             pending_en = None
+    _flush_pending("英文行后无中文释义")
     return units
 
 
