@@ -103,12 +103,17 @@ async function startSession({ mode, unit_id, title }) {
         <h2>${escapeHtml(title || "今日复习")}</h2>
         <div class="progress"><i id="bar"></i></div>
         <div class="wordcard">
+          <button class="tap-word" id="play" aria-label="听发音" style="margin-bottom:1rem;">
+            <span class="audio-hint" style="font-size:2rem;">🔊</span>
+            <small class="tap-hint">听发音</small>
+          </button>
           <div class="meaning">${w.pos ? `<span class="pos">${escapeHtml(w.pos)}.</span>` : ""}${escapeHtml(w.meaning_cn)}</div>
         </div>
         <input id="ans" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="拼写英文单词" />
         <div id="fb" class="fb"></div>
         <button class="big" id="submit">提交</button>
       </section>`);
+      card.querySelector("#play").onclick = () => { speak(w.term); inp.focus(); };
       render(card);
       const inp = card.querySelector("#ans"); inp.focus();
       let submitted = false; // guard against double Enter / double-tap
