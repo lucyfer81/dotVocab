@@ -97,6 +97,7 @@ describe("AzureTtsProvider", () => {
     expect(init.headers["Ocp-Apim-Subscription-Key"]).toBe("SECRET");
     expect(init.headers["Content-Type"]).toBe("application/ssml+xml");
     expect(init.headers["X-Microsoft-OutputFormat"]).toBe("audio-48khz-192kbitrate-mono-mp3");
+    expect(init.headers["User-Agent"]).toBeTruthy();
     expect(init.body).toContain("en-US-JennyNeural");
     expect(init.body).toContain("hello &amp; hi");
     spy.mockRestore();

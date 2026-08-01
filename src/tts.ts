@@ -56,6 +56,8 @@ export function makeAzureProvider(env: {
           "Ocp-Apim-Subscription-Key": env.AZURE_TTS_KEY,
           "Content-Type": "application/ssml+xml",
           "X-Microsoft-OutputFormat": "audio-48khz-192kbitrate-mono-mp3",
+          "User-Agent": "Mozilla/5.0 (compatible; dotVocab/1.0)",
+          "Accept": "*/*",
         },
         body: ssml,
       });
