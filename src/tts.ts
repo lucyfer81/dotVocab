@@ -60,7 +60,7 @@ export async function synthesizeWithCache(opts: {
   provider: TtsProvider;
 }): Promise<ArrayBuffer | null> {
   const key = cacheKey(opts.lang, opts.provider.name, opts.term);
-  const cached = await opts.kv.get(key, "arraybuffer");
+  const cached = await opts.kv.get(key, "arrayBuffer");
   if (cached) return cached;
   try {
     const bytes = await opts.provider.synthesize(opts.term, opts.lang);
