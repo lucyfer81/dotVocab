@@ -52,3 +52,21 @@ export function makeAzureProvider(env: {
     },
   };
 }
+
+export async function synthesizeWithCache(opts: {
+  kv: KVNamespace;
+  lang: string;
+  term: string;
+  provider: TtsProvider;
+}): Promise<ArrayBuffer | null> {
+  const key = cacheKey(opts.lang, opts.provider.name, opts.term);
+  const cached = await opts.kv.get(key, "arraybuffer");
+  if (cached) return cached;
+  try {
+    const bytes = await opts.provider.synthesize(opts.term, opts.lang);
+    await opts.kv.put(key, bytes);
+    return bytes;
+  } catch {
+    return null;
+  }
+}

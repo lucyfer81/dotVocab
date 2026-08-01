@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { validateTerm, cacheKey, escapeXml, makeAzureProvider, AZURE_PROVIDER_NAME } from "../src/tts";
+import { validateTerm, cacheKey, escapeXml, makeAzureProvider, AZURE_PROVIDER_NAME, synthesizeWithCache, type TtsProvider } from "../src/tts";
 
 describe("validateTerm", () => {
   it("returns null for missing / empty / whitespace", () => {
@@ -85,5 +85,54 @@ describe("AzureTtsProvider", () => {
     const p = makeAzureProvider({ AZURE_TTS_KEY: "k", AZURE_TTS_REGION: "eastasia" });
     await expect(p.synthesize("hi", "en-US")).rejects.toThrow(/azure_401/);
     spy.mockRestore();
+  });
+});
+
+function fakeKv(initial: Record<string, ArrayBuffer> = {}) {
+  const store = new Map<string, ArrayBuffer>(Object.entries(initial));
+  return {
+    store,
+    kv: {
+      get: async (key: string) => store.get(key) ?? null,
+      put: async (key: string, val: ArrayBuffer) => { store.set(key, val); },
+    } as unknown as KVNamespace,
+  };
+}
+
+function fakeProvider(synthesize: TtsProvider["synthesize"]): TtsProvider {
+  return { name: AZURE_PROVIDER_NAME, synthesize };
+}
+
+describe("synthesizeWithCache", () => {
+  it("returns cached bytes and does NOT call the provider on a hit", async () => {
+    const term = "hello";
+    const key = cacheKey("en-US", AZURE_PROVIDER_NAME, term);
+    const cached = new Uint8Array([9, 9]).buffer;
+    const { kv } = fakeKv({ [key]: cached });
+    const syn = vi.fn();
+    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn) });
+    expect(out).toBe(cached);
+    expect(syn).not.toHaveBeenCalled();
+  });
+
+  it("on a miss, calls the provider, writes KV, and returns the bytes", async () => {
+    const term = "world";
+    const key = cacheKey("en-US", AZURE_PROVIDER_NAME, term);
+    const { kv, store } = fakeKv();
+    const fresh = new Uint8Array([7, 7, 7]).buffer;
+    const syn = vi.fn(async () => fresh);
+    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn as any) });
+    expect(out).toBe(fresh);
+    expect(syn).toHaveBeenCalledWith("world", "en-US");
+    expect(store.get(key)).toBe(fresh);
+  });
+
+  it("returns null (and does not write KV) when the provider throws", async () => {
+    const term = "boom";
+    const { kv, store } = fakeKv();
+    const syn = vi.fn(async () => { throw new Error("azure_500"); });
+    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn as any) });
+    expect(out).toBeNull();
+    expect(store.size).toBe(0);
   });
 });
