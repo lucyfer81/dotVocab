@@ -126,7 +126,6 @@ async function startSession({ mode, unit_id, title }) {
         <div class="progress"><i id="bar"></i></div>
         <div class="wordcard">
           <div class="meaning">${w.pos ? `<span class="pos">${escapeHtml(w.pos)}.</span>` : ""}${escapeHtml(w.meaning_cn)}</div>
-          ${w.example_en ? `<div class="ex">${escapeHtml(w.example_en)}</div>` : ""}
         </div>
         <input id="ans" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="拼写英文单词" />
         <div id="fb" class="fb"></div>
