@@ -22,11 +22,16 @@ function render(node) {
   app.appendChild(node);
 }
 function speak(text) {
-  if ("speechSynthesis" in window) {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en-US";
-    speechSynthesis.speak(u);
-  }
+  const url = `/api/tts?term=${encodeURIComponent(text)}&lang=en-US`;
+  const a = new Audio(url);
+  a.play().catch(() => {
+    // 合成失败 / 网络失败：回退浏览器机械音，保证按钮永不哑
+    if ("speechSynthesis" in window) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "en-US";
+      speechSynthesis.speak(u);
+    }
+  });
 }
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
