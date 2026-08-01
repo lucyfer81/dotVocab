@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { SELF, env } from "cloudflare:test";
 import { validateTerm, cacheKey, escapeXml, makeAzureProvider, AZURE_PROVIDER_NAME, synthesizeWithCache, type TtsProvider } from "../src/tts";
 
 describe("validateTerm", () => {
@@ -134,5 +135,38 @@ describe("synthesizeWithCache", () => {
     const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn as any) });
     expect(out).toBeNull();
     expect(store.size).toBe(0);
+  });
+});
+
+describe("GET /api/tts (route)", () => {
+  it("returns 400 for a missing term", async () => {
+    const res = await SELF.fetch("https://example.com/api/tts");
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "bad_term" });
+  });
+
+  it("returns 400 for an invalid term", async () => {
+    const res = await SELF.fetch("https://example.com/api/tts?term=bad<word");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns cached mp3 with correct headers on a cache hit", async () => {
+    const term = "apple";
+    const key = cacheKey("en-US", AZURE_PROVIDER_NAME, term);
+    const bytes = new Uint8Array([0x49, 0x44, 0x33, 0x04]).buffer;
+    await env.AUDIO.put(key, bytes);
+
+    const res = await SELF.fetch("https://example.com/api/tts?term=apple");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("audio/mpeg");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    const out = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(out)).toEqual([0x49, 0x44, 0x33, 0x04]);
+  });
+
+  it("returns 502 on a cache miss when Azure is not configured (no key in test env)", async () => {
+    const res = await SELF.fetch("https://example.com/api/tts?term=misswordxyz");
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "synthesis_failed" });
   });
 });

@@ -1,3 +1,6 @@
+import { Hono } from "hono";
+import type { Env } from "./index";
+
 export function validateTerm(raw: string | undefined): string | null {
   if (!raw) return null;
   const t = raw.trim();
@@ -70,3 +73,20 @@ export async function synthesizeWithCache(opts: {
     return null;
   }
 }
+
+export const tts = new Hono<{ Bindings: Env }>();
+
+tts.get("/tts", async (c) => {
+  const term = validateTerm(c.req.query("term"));
+  if (!term) return c.json({ error: "bad_term" }, 400);
+  const lang = c.req.query("lang") || "en-US";
+  const provider = makeAzureProvider(c.env);
+  const bytes = await synthesizeWithCache({ kv: c.env.AUDIO, lang, term, provider });
+  if (!bytes) return c.json({ error: "synthesis_failed" }, 502);
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+});
