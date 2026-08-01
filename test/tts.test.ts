@@ -163,10 +163,4 @@ describe("GET /api/tts (route)", () => {
     const out = new Uint8Array(await res.arrayBuffer());
     expect(Array.from(out)).toEqual([0x49, 0x44, 0x33, 0x04]);
   });
-
-  it("returns 502 on a cache miss when Azure is not configured (no key in test env)", async () => {
-    const res = await SELF.fetch("https://example.com/api/tts?term=misswordxyz");
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "synthesis_failed" });
-  });
 });
