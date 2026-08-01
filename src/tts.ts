@@ -15,3 +15,40 @@ export function escapeXml(s: string): string {
   return s.replace(/[&<>"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[ch] as string));
 }
+
+export interface TtsProvider {
+  name: string;
+  synthesize(text: string, lang: string): Promise<ArrayBuffer>;
+}
+
+export const AZURE_PROVIDER_NAME = "azure-jenny";
+
+export function makeAzureProvider(env: {
+  AZURE_TTS_KEY: string;
+  AZURE_TTS_REGION: string;
+}): TtsProvider {
+  return {
+    name: AZURE_PROVIDER_NAME,
+    async synthesize(text, lang) {
+      if (!env.AZURE_TTS_KEY || !env.AZURE_TTS_REGION) {
+        throw new Error("azure_not_configured");
+      }
+      const url = `https://${env.AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
+      const ssml =
+        `<speak version='1.0' xml:lang='${escapeXml(lang)}'` +
+        ` xmlns='http://www.w3.org/2001/10/synthesis'>` +
+        `<voice name='en-US-JennyNeural'>${escapeXml(text)}</voice></speak>`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Ocp-Apim-Subscription-Key": env.AZURE_TTS_KEY,
+          "Content-Type": "application/ssml+xml",
+          "X-Microsoft-OutputFormat": "audio-48khz-192kbitrate-mono-mp3",
+        },
+        body: ssml,
+      });
+      if (!res.ok) throw new Error(`azure_${res.status}`);
+      return await res.arrayBuffer();
+    },
+  };
+}
