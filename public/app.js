@@ -94,29 +94,7 @@ async function startSession({ mode, unit_id, title }) {
     if (queue.length === 0 && retry.length) { queue.push(...retry.splice(0)); }
     if (queue.length === 0) return finish();
     const w = queue.shift();
-    await showWordIntro(w);
-  }
-
-  function showWordIntro(w) {
-    return new Promise((resolve) => {
-      const isNew = (w.reps || 0) === 0 && (w.due_at || 0) === 0;
-      if (!isNew) { resolve(spellingCard(w)); return; }
-      const card = $(`<section class="study">
-        <h2>${escapeHtml(title || "今日复习")}</h2>
-        <div class="wordcard">
-          <button class="tap-word" id="play" aria-label="朗读 ${escapeHtml(w.term)}">
-            <span class="term">${escapeHtml(w.term)}</span><span class="audio-hint">🔊</span>
-            <small class="tap-hint">点单词朗读</small>
-          </button>
-          <div class="meaning">${w.pos ? `<span class="pos">${escapeHtml(w.pos)}.</span>` : ""}${escapeHtml(w.meaning_cn)}</div>
-          ${w.example_en ? `<div class="ex">${escapeHtml(w.example_en)}<br><span class="muted">${escapeHtml(w.example_cn || "")}</span></div>` : ""}
-        </div>
-        <button class="big" id="start">开始拼写</button>
-      </section>`);
-      card.querySelector("#play").onclick = () => speak(w.term);
-      card.querySelector("#start").onclick = () => { render(document.createElement("div")); resolve(spellingCard(w)); };
-      render(card);
-    });
+    await spellingCard(w);
   }
 
   function spellingCard(w) {
