@@ -15,5 +15,5 @@ database_id = "a2babb4b-9845-4197-8e8a-bc2b30979008"
 
 [[kv_namespaces]]
 binding = "AUDIO"
-id = "REPLACE_VIA_wrangler_kv_namespace_create"
-preview_id = "REPLACE_VIA_wrangler_kv_namespace_create_preview"
+id = "ae50b24969b04bfcb294fd0a9dc1d471"
+preview_id = "3daa21a33c414fe79292981ab8fa2ee9"
