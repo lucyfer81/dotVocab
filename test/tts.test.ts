@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { SELF, env } from "cloudflare:test";
-import { validateTerm, cacheKey, escapeXml, makeAzureProvider, AZURE_PROVIDER_NAME, synthesizeWithCache, type TtsProvider } from "../src/tts";
+import { validateTerm, validateLang, cacheKey, escapeXml, makeAzureProvider, AZURE_PROVIDER_NAME, synthesizeWithCache, type TtsProvider } from "../src/tts";
 
 describe("validateTerm", () => {
   it("returns null for missing / empty / whitespace", () => {
@@ -10,6 +10,9 @@ describe("validateTerm", () => {
   });
   it("returns null when > 200 chars", () => {
     expect(validateTerm("a".repeat(201))).toBeNull();
+  });
+  it("allows exactly 200 characters (boundary)", () => {
+    expect(validateTerm("a".repeat(200))).toBe("a".repeat(200));
   });
   it("returns null for disallowed characters", () => {
     expect(validateTerm("hello<world")).toBeNull();
@@ -21,6 +24,24 @@ describe("validateTerm", () => {
     expect(validateTerm("Fish-and-Chips")).toBe("fish-and-chips");
     expect(validateTerm("it's")).toBe("it's");
     expect(validateTerm("What?")).toBe("what?");
+  });
+});
+
+describe("validateLang", () => {
+  it("defaults to en-US when absent", () => {
+    expect(validateLang(undefined)).toBe("en-US");
+  });
+  it("accepts standard region tags", () => {
+    expect(validateLang("en-GB")).toBe("en-GB");
+    expect(validateLang("zh-CN")).toBe("zh-CN");
+  });
+  it("accepts a bare 2-letter language", () => {
+    expect(validateLang("en")).toBe("en");
+  });
+  it("rejects invalid tags", () => {
+    expect(validateLang("english")).toBeNull();
+    expect(validateLang("en:US")).toBeNull();
+    expect(validateLang("en-US-extra")).toBeNull();
   });
 });
 
@@ -37,6 +58,9 @@ describe("escapeXml", () => {
   });
   it("leaves other text untouched", () => {
     expect(escapeXml("hello world")).toBe("hello world");
+  });
+  it("returns empty string unchanged", () => {
+    expect(escapeXml("")).toBe("");
   });
 });
 
@@ -73,7 +97,6 @@ describe("AzureTtsProvider", () => {
     expect(init.headers["Ocp-Apim-Subscription-Key"]).toBe("SECRET");
     expect(init.headers["Content-Type"]).toBe("application/ssml+xml");
     expect(init.headers["X-Microsoft-OutputFormat"]).toBe("audio-48khz-192kbitrate-mono-mp3");
-    // voice is fixed JennyNeural; ampersand in text is XML-escaped
     expect(init.body).toContain("en-US-JennyNeural");
     expect(init.body).toContain("hello &amp; hi");
     spy.mockRestore();
@@ -89,13 +112,16 @@ describe("AzureTtsProvider", () => {
   });
 });
 
-function fakeKv(initial: Record<string, ArrayBuffer> = {}) {
+function fakeKv(initial: Record<string, ArrayBuffer> = {}, opts: { putThrows?: boolean } = {}) {
   const store = new Map<string, ArrayBuffer>(Object.entries(initial));
   return {
     store,
     kv: {
       get: async (key: string) => store.get(key) ?? null,
-      put: async (key: string, val: ArrayBuffer) => { store.set(key, val); },
+      put: async (key: string, val: ArrayBuffer) => {
+        if (opts.putThrows) throw new Error("kv_put_failed");
+        store.set(key, val);
+      },
     } as unknown as KVNamespace,
   };
 }
@@ -110,7 +136,7 @@ describe("synthesizeWithCache", () => {
     const key = cacheKey("en-US", AZURE_PROVIDER_NAME, term);
     const cached = new Uint8Array([9, 9]).buffer;
     const { kv } = fakeKv({ [key]: cached });
-    const syn = vi.fn();
+    const syn: TtsProvider["synthesize"] = vi.fn();
     const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn) });
     expect(out).toBe(cached);
     expect(syn).not.toHaveBeenCalled();
@@ -121,8 +147,8 @@ describe("synthesizeWithCache", () => {
     const key = cacheKey("en-US", AZURE_PROVIDER_NAME, term);
     const { kv, store } = fakeKv();
     const fresh = new Uint8Array([7, 7, 7]).buffer;
-    const syn = vi.fn(async () => fresh);
-    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn as any) });
+    const syn: TtsProvider["synthesize"] = vi.fn(async () => fresh);
+    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn) });
     expect(out).toBe(fresh);
     expect(syn).toHaveBeenCalledWith("world", "en-US");
     expect(store.get(key)).toBe(fresh);
@@ -131,10 +157,20 @@ describe("synthesizeWithCache", () => {
   it("returns null (and does not write KV) when the provider throws", async () => {
     const term = "boom";
     const { kv, store } = fakeKv();
-    const syn = vi.fn(async () => { throw new Error("azure_500"); });
-    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn as any) });
+    const syn: TtsProvider["synthesize"] = vi.fn(async () => { throw new Error("azure_500"); });
+    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn) });
     expect(out).toBeNull();
     expect(store.size).toBe(0);
+  });
+
+  it("still returns synthesized bytes when KV put throws (non-fatal)", async () => {
+    const term = "hello";
+    const { kv } = fakeKv({}, { putThrows: true });
+    const fresh = new Uint8Array([7, 7, 7]).buffer;
+    const syn: TtsProvider["synthesize"] = vi.fn(async () => fresh);
+    const out = await synthesizeWithCache({ kv, lang: "en-US", term, provider: fakeProvider(syn) });
+    expect(out).toBe(fresh);
+    expect(syn).toHaveBeenCalledOnce();
   });
 });
 
@@ -148,6 +184,13 @@ describe("GET /api/tts (route)", () => {
   it("returns 400 for an invalid term", async () => {
     const res = await SELF.fetch("https://example.com/api/tts?term=bad<word");
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "bad_term" });
+  });
+
+  it("returns 400 for an invalid lang", async () => {
+    const res = await SELF.fetch("https://example.com/api/tts?term=apple&lang=en:US");
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "bad_lang" });
   });
 
   it("returns cached mp3 with correct headers on a cache hit", async () => {
