@@ -35,6 +35,36 @@ h1,h2,h3 { margin:0.4em 0; }
 .cmp { font-family:monospace; font-size:26px; letter-spacing:2px; }
 .progress { height:6px; background:#e5e7eb; border-radius:3px; margin:8px 0; }
 
+/* ---- 拼写输入：password 真 input + 镜像显示（防 iOS 联想栏, 2026-08-03） ---- */
+.spell-input { position: relative; }
+.spell-mirror {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center;
+  padding: 14px;                       /* 与 .study input 同 */
+  font-family: inherit;
+  font-size: 22px;                     /* 与 .study input mobile 同 */
+  color: var(--ink);
+  cursor: text;
+  z-index: 1;
+  overflow: hidden;
+}
+.spell-mirror .ph { color: #9ca3af; }
+.spell-mirror .caret {
+  display: inline-block; width: 2px; height: 1.2em; margin-left: 1px;
+  background: var(--pri);
+  animation: spell-caret-blink 1s steps(2, start) infinite;
+}
+@keyframes spell-caret-blink { to { opacity: 0; } }
+
+/* 真 input：文字/光标透明，仅接收键盘；边框/圆角/padding 仍由 .study input 提供 */
+.spell-input input {
+  color: transparent;
+  caret-color: transparent;
+  position: relative;
+  z-index: 0;
+}
+.spell-input:focus-within input { border-color: var(--pri); }   /* input 透明看不到 focus ring，靠边框变色提示 */
+
 /* ---------- ≥1024px: iPad 横版 / 笔记本 适配 ---------- */
 @media (min-width: 1024px) {
   #app { max-width: 920px; padding: 24px; }
@@ -59,6 +89,7 @@ h1,h2,h3 { margin:0.4em 0; }
   .wordcard .ex { font-size:19px; }
   .wordcard .ex .muted { font-size:17px; }
   .study input { font-size:24px; }
+  .spell-mirror { font-size: 24px; }   /* 与 .study input ≥1024 同步 */
   .fb { font-size: 22px; }
 
   .admin-cols { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }  /* Task 5 */

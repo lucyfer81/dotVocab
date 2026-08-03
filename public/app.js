@@ -1,3 +1,5 @@
+import { shouldRejectInputType, sanitizeValue, renderMirrorHtml } from "./spell-helpers.js";
+
 const API = "/api";
 let currentUser;
 try { currentUser = JSON.parse(localStorage.getItem("dotvocab_user") || "null"); }
@@ -37,6 +39,25 @@ function speak(text) {
 }
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---------- spell input: password field + mirror display ----------
+// iOS does not show the predictive bar for type=password; the mirror div is
+// what the user actually sees, since password dots would be useless here.
+function makeSpellInput(input, mirror, placeholder) {
+  let last = "";
+  const render = () => { mirror.innerHTML = renderMirrorHtml(input.value, placeholder); };
+  input.addEventListener("input", (e) => {
+    if (shouldRejectInputType(e.inputType)) { input.value = last; return; }
+    const cleaned = sanitizeValue(input.value);
+    if (cleaned !== input.value) input.value = cleaned;
+    last = input.value;
+    render();
+  });
+  input.addEventListener("paste", (e) => e.preventDefault());
+  mirror.addEventListener("click", () => input.focus());
+  render();
+  return { render };
 }
 
 // ---------- identity ----------
@@ -116,13 +137,22 @@ async function startSession({ mode, unit_id, title }) {
           </button>
           <div class="meaning">${w.pos ? `<span class="pos">${escapeHtml(w.pos)}.</span>` : ""}${escapeHtml(w.meaning_cn)}</div>
         </div>
-        <input id="ans" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="拼写英文单词" />
+        <div class="spell-input">
+          <div class="spell-mirror" id="mirror"></div>
+          <input type="password" id="ans"
+                 autocorrect="off" autocapitalize="off" autocomplete="off"
+                 spellcheck="false" inputmode="text"
+                 aria-label="拼写英文单词" />
+        </div>
         <div id="fb" class="fb"></div>
         <button class="big" id="submit">提交</button>
       </section>`);
       card.querySelector("#play").onclick = () => { speak(w.term); inp.focus(); };
       render(card);
-      const inp = card.querySelector("#ans"); inp.focus();
+      const inp = card.querySelector("#ans");
+      const mirror = card.querySelector("#mirror");
+      makeSpellInput(inp, mirror, "拼写英文单词");
+      inp.focus();
       let submitted = false; // guard against double Enter / double-tap
       card.querySelector("#submit").onclick = submit;
       inp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
