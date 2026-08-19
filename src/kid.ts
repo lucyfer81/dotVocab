@@ -123,7 +123,7 @@ kid.post("/session/unit", async (c) => {
      LEFT JOIN user_unit_word_seen seen
        ON seen.unit_id = uw.unit_id AND seen.word_id = uw.word_id AND seen.user_id = ?
      WHERE uw.unit_id = ? AND seen.word_id IS NULL
-     ORDER BY w.term`
+     ORDER BY RANDOM()`
   ).bind(body.user_id, body.user_id, body.unit_id).all();
   return c.json(results);
 });
