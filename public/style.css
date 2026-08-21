@@ -1,49 +1,144 @@
-:root { --bg:#fff7ed; --ink:#1f2937; --pri:#2563eb; --ok:#16a34a; --bad:#dc2626; }
-* { box-sizing: border-box; }
-body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); }
+/* ================= 太空探险主题（2026-08-21, 8岁男孩向） =================
+   深空渐变画布 + CSS 星星 + 玩具感按钮 + 火箭进度 + 答题动效。
+   body.admin（家长后台）在文件末尾整体回退为浅色主题。 */
+:root {
+  --bg-deep:#0b1026; --bg2:#1c2a63;
+  --ink:#eef2ff;            /* 深色底上的浅色正文（wordcard 白底内仍用 --panel-ink） */
+  --muted:#9fb0d8;
+  --pri:#38e1ff;            /* 太空青：链接/焦点/轨道填充 */
+  --ok:#3ddc84; --bad:#ff7b72;
+  --panel:#ffffff; --panel-ink:#1f2937;
+  --btn:#ffb020; --btn-hi:#ffd166; --btn-ink:#4a2b00; --btn-shadow:#b36b00;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { background: linear-gradient(165deg, var(--bg-deep) 0%, #131c44 55%, var(--bg2) 100%); min-height: 100%; }
+body {
+  margin:0; font-family: ui-rounded, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color:var(--ink); min-height:100vh;
+}
+/* 星空：多层 radial-gradient 平铺 + 呼吸式闪烁，零图片资源 */
+body::before {
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background-image:
+    radial-gradient(1px 1px at 22px 34px, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 128px 96px, #ffe9a8, transparent),
+    radial-gradient(1px 1px at 74px 158px, #cfe6ff, transparent),
+    radial-gradient(2px 2px at 178px 26px, #fff, transparent),
+    radial-gradient(1px 1px at 226px 138px, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 40px 200px, #ffd7d7, transparent);
+  background-size: 260px 220px;
+  animation: twinkle 4s ease-in-out infinite alternate;
+}
+@keyframes twinkle { from { opacity:.35; } to { opacity:.9; } }
+
 #app { max-width:560px; margin:0 auto; padding:16px; }
 h1,h2,h3 { margin:0.4em 0; }
-.muted { color:#6b7280; }
+.muted { color:var(--muted); }
 .top { display:flex; justify-content:space-between; align-items:center; }
 .me { font-weight:600; }
+
+/* 统计条：玻璃质感小面板 */
 .stats { display:flex; gap:8px; margin:12px 0; }
-.stat { background:#fff; border-radius:12px; padding:8px 14px; font-size:18px; }
-.big, .card { width:100%; border:0; border-radius:14px; padding:16px; font-size:18px; background:var(--pri); color:#fff; cursor:pointer; margin:8px 0; }
+.stat {
+  background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18);
+  border-radius:14px; padding:8px 14px; font-size:18px;
+}
+
+/* 玩具感大按钮：厚底阴影 + 按下位移 */
+.big, .card {
+  width:100%; border:0; border-radius:18px; padding:16px; font-size:19px;
+  font-weight:800; cursor:pointer; margin:8px 0;
+  background:linear-gradient(180deg, var(--btn-hi), var(--btn));
+  color:var(--btn-ink);
+  box-shadow:0 5px 0 var(--btn-shadow);
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+.big:active, .card:active { transform:translateY(4px); box-shadow:0 1px 0 var(--btn-shadow); }
 .link { background:none; border:0; color:var(--pri); cursor:pointer; font-size:16px; }
+
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.card.user { background:#fde68a; color:#7c2d12; }
-.card.unit { background:#bfdbfe; color:#1e3a8a; text-align:left; }
+
+/* 宇航员身份卡 */
+.card.user { background:linear-gradient(180deg,#ffe082,#f6b93b); color:#5d3200; box-shadow:0 5px 0 #9c6b0a; }
+.card.user:active { box-shadow:0 1px 0 #9c6b0a; }
 .avatar { font-size:42px; }
-.bar { height:8px; background:#ffffff88; border-radius:4px; margin:6px 0; overflow:hidden; }
-.bar i { display:block; height:100%; background:var(--ok); }
-.study input { width:100%; padding:14px; font-size:22px; border:2px solid #cbd5e1; border-radius:10px; }
+
+/* 星球关卡卡：5 色轮换，像五颗行星 */
+.card.unit { text-align:left; color:#1f2937; }
+.card.unit:nth-child(5n+1) { background:linear-gradient(180deg,#ffd9c9,#ffb59e); box-shadow:0 5px 0 #b25b3c; }
+.card.unit:nth-child(5n+2) { background:linear-gradient(180deg,#dfe6f5,#b9cdf0); box-shadow:0 5px 0 #5471a8; }
+.card.unit:nth-child(5n+3) { background:linear-gradient(180deg,#d7f7e4,#a9ecc8); box-shadow:0 5px 0 #3e9e6e; }
+.card.unit:nth-child(5n+4) { background:linear-gradient(180deg,#fdeeb8,#f8d978); box-shadow:0 5px 0 #b08a1e; }
+.card.unit:nth-child(5n+5) { background:linear-gradient(180deg,#e6d6f7,#cbb1ef); box-shadow:0 5px 0 #7a56ad; }
+.card.unit:active { box-shadow:0 1px 0 rgba(0,0,0,.3); }
+
+/* 火箭轨道进度条：青色轨道 + 🚀 停在进度处（--pct 由 JS 内联） */
+.bar, .progress { position:relative; height:8px; background:rgba(255,255,255,.28); border-radius:4px; margin:6px 0; overflow:visible; }
+.bar i, .progress i { display:block; height:100%; background:var(--pri); border-radius:4px; transition:width .3s; }
+.bar::after, .progress::after {
+  content:"🚀"; position:absolute; top:50%; left:var(--pct, 0%);
+  transform:translate(-50%, -50%); font-size:15px; line-height:1;
+}
+.progress { height:10px; margin:8px 0; }
+
+/* 学习区：拼写输入 */
+.study input { width:100%; padding:14px; font-size:22px; border:2px solid #cbd5e1; border-radius:12px; background:#fff; color:#1f2937; }
 .ex { color:#374151; margin:8px 0; }
-/* ---- 背单词卡片：卡片框 + 整词可点 + 统一字号（2026-07-31） ---- */
-.wordcard { background:#fff; border-radius:18px; padding:24px 22px; margin:8px 0; box-shadow:0 2px 10px rgba(0,0,0,.05); text-align:center; }
-.tap-word { display:block; width:100%; border:0; background:#f0f7ff; border-radius:12px; padding:12px 8px; cursor:pointer; text-align:center; color:#1e3a8a; }
+
+/* ---- 太空站白卡：可读性优先，深底上的白色大圆角面板 ---- */
+.wordcard { background:var(--panel); color:var(--panel-ink); border-radius:18px; padding:24px 22px; margin:8px 0; box-shadow:0 6px 24px rgba(0,0,0,.35); text-align:center; }
+.tap-word {
+  display:block; width:100%; border:0; margin:0 0 12px;
+  background:linear-gradient(180deg,#f0f9ff,#d8efff);
+  border-radius:14px; padding:14px 8px; cursor:pointer; text-align:center; color:#1e3a8a;
+}
 .tap-word .term { font-size:40px; font-weight:700; line-height:1.15; }
 .tap-word .audio-hint { font-size:30px; margin-left:6px; }
-.tap-word .tap-hint { display:block; font-size:12px; color:#9ca3af; margin-top:4px; }
+.tap-word .tap-hint { display:block; font-size:12px; color:#5b7a9d; margin-top:4px; }
 .meaning { font-size:26px; line-height:1.3; margin-top:16px; }
-.wordcard > .meaning:first-child { margin-top:0; } /* 拼写卡里 meaning 是首元素，去掉顶部叠 margin */
+.wordcard > .meaning:first-child { margin-top:0; }
 .meaning .pos { font-size:15px; color:#9ca3af; margin-right:4px; }
 .wordcard .ex { font-size:17px; margin:12px 0 0; }
 .wordcard .ex .muted { font-size:15px; }
 
+/* ---- 答题反馈动效 ---- */
 .fb { min-height:32px; margin:8px 0; font-size:20px; }
 .ok { color:var(--ok); } .bad { color:var(--bad); }
+.fb .ok, .fb .bad { display:inline-block; animation: pop .4s; }
 .cmp { font-family:monospace; font-size:26px; letter-spacing:2px; }
-.progress { height:6px; background:#e5e7eb; border-radius:3px; margin:8px 0; }
+
+/* 连击徽章 */
+.combo {
+  display:inline-block; margin-left:8px; padding:3px 12px; border-radius:999px;
+  background:linear-gradient(135deg,#ff9d00,#ff5e62); color:#fff;
+  font-size:15px; font-weight:800; vertical-align:middle;
+  animation: pop .45s;
+}
+
+/* 答对：卡片起飞；答错：卡片抖动 */
+.wordcard.launch { animation: launch .55s ease-in forwards; }
+.wordcard.shake { animation: shake .45s; }
+@keyframes launch { 25% { transform:translateY(8px); } 100% { transform:translateY(-52px) scale(.94); opacity:.08; } }
+@keyframes shake {
+  0%,100% { transform:translateX(0); } 20% { transform:translateX(-10px); }
+  40% { transform:translateX(8px); } 60% { transform:translateX(-6px); } 80% { transform:translateX(4px); }
+}
+@keyframes pop { 0% { transform:scale(.3); } 60% { transform:scale(1.25); } 100% { transform:scale(1); } }
+
+/* 完成页庆祝：⭐🎉 星屑飘落（粒子参数由 JS 内联 --x/--d/--r/--s） */
+.confetti { position:fixed; inset:0; pointer-events:none; overflow:hidden; }
+.confetti span { position:absolute; top:-6vh; left:var(--x); font-size:var(--s); animation: fall var(--d) linear forwards; }
+@keyframes fall { to { transform:translateY(115vh) rotate(var(--r)); } }
 
 /* ---- 拼写输入：password 真 input + 镜像显示（防 iOS 联想栏, 2026-08-03） ---- */
 .spell-input { position: relative; }
 .spell-mirror {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   display: flex; align-items: center;
-  padding: 14px;                       /* 与 .study input 同 */
+  padding: 14px;
   font-family: inherit;
-  font-size: 22px;                     /* 与 .study input mobile 同 */
-  color: var(--ink);
+  font-size: 22px;
+  color: #1f2937;
   cursor: text;
   z-index: 1;
   overflow: hidden;
@@ -51,19 +146,17 @@ h1,h2,h3 { margin:0.4em 0; }
 .spell-mirror .ph { color: #9ca3af; }
 .spell-mirror .caret {
   display: inline-block; width: 2px; height: 1.2em; margin-left: 1px;
-  background: var(--pri);
+  background: #1f2937;
   animation: spell-caret-blink 1s steps(2, start) infinite;
 }
 @keyframes spell-caret-blink { to { opacity: 0; } }
-
-/* 真 input：文字/光标透明，仅接收键盘；边框/圆角/padding 仍由 .study input 提供 */
 .spell-input input {
   color: transparent;
   caret-color: transparent;
   position: relative;
   z-index: 0;
 }
-.spell-input:focus-within input { border-color: var(--pri); }   /* input 透明看不到 focus ring，靠边框变色提示 */
+.spell-input:focus-within input { border-color: var(--pri); }
 
 /* ---------- 家长后台：输入控件统一外观 + 词库行/行内编辑 ---------- */
 body.admin input, body.admin select, body.admin textarea {
@@ -78,18 +171,27 @@ body.admin input, body.admin select, body.admin textarea {
 .wrow .wbtns .link { margin-left: 8px; }
 .wedit { background: #eff6ff; border-radius: 12px; padding: 10px 14px; margin: 8px 0; text-align: left; }
 
+/* ---------- 家长后台：整体回退浅色主题（屏蔽星空/深底/玩具按钮） ---------- */
+body.admin { background:#fff7ed; color:#1f2937; }
+body.admin::before { display:none; }
+body.admin .muted { color:#6b7280; }
+body.admin .stat { background:#fff; border:0; color:#1f2937; }
+body.admin .big { background:#2563eb; color:#fff; box-shadow:none; }
+body.admin .big:active { transform:none; }
+body.admin .link { color:#2563eb; }
+
 /* ---------- ≥1024px: iPad 横版 / 笔记本 适配 ---------- */
 @media (min-width: 1024px) {
   #app { max-width: 920px; padding: 24px; }
-  body.admin #app { max-width: 1120px; }          /* 家长端笔记本更宽，Task 5 启用 */
-  .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }  /* 自动 4 列 @920px */
+  body.admin #app { max-width: 1120px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 
   h1 { font-size: 30px; } h2 { font-size: 24px; } h3 { font-size: 20px; }
   .stat { font-size: 20px; padding: 10px 18px; }
   .big, .card { font-size: 22px; padding: 18px; }
-  #review { padding: 22px; font-size: 26px; font-weight: 600; }   /* 今日复习 hero，Task 3 关联 */
+  #review { padding: 22px; font-size: 26px; }
   .avatar { font-size: 56px; }
-  .id-grid { max-width: 460px; margin: 0 auto; }                 /* 身份页封顶，Task 3 关联 */
+  .id-grid { max-width: 460px; margin: 0 auto; }
   .ex { max-width: 60ch; font-size: 18px; }
   .cmp { font-size: 32px; }
   .study { max-width: 480px; margin-left: auto; margin-right: auto; }
@@ -102,9 +204,14 @@ body.admin input, body.admin select, body.admin textarea {
   .wordcard .ex { font-size:19px; }
   .wordcard .ex .muted { font-size:17px; }
   .study input { font-size:24px; }
-  .spell-mirror { font-size: 24px; }   /* 与 .study input ≥1024 同步 */
+  .spell-mirror { font-size: 24px; }
   .fb { font-size: 22px; }
 
-  .admin-cols { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }  /* Task 5 */
-  .admin-right { max-height: 72vh; overflow: auto; }                                               /* Task 5 */
+  .admin-cols { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }
+  .admin-right { max-height: 72vh; overflow: auto; }
+}
+
+/* ---------- 无障碍：用户偏好减动效时全部关闭 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }

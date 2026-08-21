@@ -9,7 +9,11 @@ dist/
 
 .superpowers/
 .venv/
+.env
+.env.*
+!.env.example
 scripts/out/
 materials/
 __pycache__/
 *.pyc
+.pytest_cache/

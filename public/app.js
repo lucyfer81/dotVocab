@@ -1,4 +1,5 @@
 import { shouldRejectInputType, sanitizeValue, renderMirrorHtml } from "./spell-helpers.js";
+import { sfx } from "./sfx.js";
 
 const API = "/api";
 let currentUser;
@@ -63,7 +64,7 @@ function makeSpellInput(input, mirror, placeholder) {
 // ---------- identity ----------
 async function showIdentity() {
   const users = await api("/users");
-  const wrap = $(`<section><h1>谁在背单词？</h1><div class="grid id-grid"></div></section>`);
+  const wrap = $(`<section><h1>🧑‍🚀 选择你的宇航员</h1><div class="grid id-grid"></div></section>`);
   const grid = wrap.querySelector(".grid");
   users.forEach((u) => {
     const card = $(`<button class="card user"><div class="avatar">${escapeHtml(u.avatar)}</div><div>${escapeHtml(u.name)}</div></button>`);
@@ -83,9 +84,9 @@ async function showHome() {
   const wrap = $(`<section>
     <header class="top"><button class="link" id="switch">切换用户</button>
       <div class="me">${escapeHtml(currentUser.avatar)} ${escapeHtml(currentUser.name)}</div></header>
-    <div class="stats"><div class="stat">⭐ ${home.stars}</div><div class="stat">🔥 ${home.streak_days}</div><div class="stat">📥 待复习 ${home.due_count}</div></div>
-    <button class="big" id="review">今日复习 (${home.due_count})</button>
-    <h2>按课本学</h2>
+    <div class="stats"><div class="stat">⭐ ${home.stars}</div><div class="stat">🔥 ${home.streak_days}</div><div class="stat">🛸 ${home.due_count}</div></div>
+    <button class="big" id="review">🚀 今日任务 (${home.due_count})</button>
+    <h2>🪐 选择星球关卡</h2>
     <div class="units"></div>
   </section>`);
   wrap.querySelector("#switch").onclick = () => { currentUser = null; localStorage.removeItem("dotvocab_user"); showIdentity(); };
@@ -97,7 +98,7 @@ async function showHome() {
     const sec = $(`<div><h3>${escapeHtml(book)}</h3><div class="grid"></div></div>`);
     grouped[book].forEach((u) => {
       const card = $(`<button class="card unit"><div>${escapeHtml(u.unit)}</div>
-        <div class="bar"><i style="width:${u.pct}%"></i></div><small>${u.covered}/${u.total} · ${u.pct}%</small></button>`);
+        <div class="bar" style="--pct:${u.pct}%"><i style="width:${u.pct}%"></i></div><small>${u.covered}/${u.total} · ${u.pct}%</small></button>`);
       card.onclick = () => startSession({ mode: "unit", unit_id: u.unit_id, title: `${book} · ${u.unit}` });
       sec.querySelector(".grid").appendChild(card);
     });
@@ -115,21 +116,36 @@ async function startSession({ mode, unit_id, title }) {
   const retry = [];
   const wrongCount = {}; // per-word wrong-attempt count, to cap retries
   const stats = { done: 0, correct: 0 };
-  if (queue.length === 0) { render($(`<section><h2>${title || "今日复习"}</h2><p>没有要学的词啦 🎉</p><button class="big" id="back">返回</button></section>`)); document.getElementById("back").onclick = showHome; return; }
+  let wrongTotal = 0;   // total wrong attempts (for progress)
+  let streak = 0;       // 连击：连续答对数
+  if (queue.length === 0) { render($(`<section><h2>${title || "今日任务"}</h2><p>太空里没有待复习的单词啦 🎉</p><button class="big" id="back">返回基地</button></section>`)); document.getElementById("back").onclick = showHome; return; }
+
+  function updateProgress() {
+    const attempted = stats.done + wrongTotal;
+    const remaining = queue.length + retry.length;
+    const pct = attempted + remaining === 0 ? 0 : Math.round((attempted / (attempted + remaining)) * 100);
+    const barEl = document.querySelector(".progress");
+    if (barEl) {
+      barEl.style.setProperty("--pct", pct + "%");
+      barEl.querySelector("i").style.width = pct + "%";
+    }
+  }
+
   await nextCard();
 
   async function nextCard() {
     if (queue.length === 0 && retry.length) { queue.push(...retry.splice(0)); }
     if (queue.length === 0) return finish();
     const w = queue.shift();
+    updateProgress();
     await spellingCard(w);
   }
 
   function spellingCard(w) {
     return new Promise((resolve) => {
       const card = $(`<section class="study">
-        <h2>${escapeHtml(title || "今日复习")}</h2>
-        <div class="progress"><i id="bar"></i></div>
+        <h2>${escapeHtml(title || "今日任务")}</h2>
+        <div class="progress"><i></i></div>
         <div class="wordcard">
           <button class="tap-word" id="play" aria-label="听发音" style="margin-bottom:1rem;">
             <span class="audio-hint" style="font-size:2rem;">🔊</span>
@@ -168,13 +184,21 @@ async function startSession({ mode, unit_id, title }) {
         const fb = card.querySelector("#fb");
         if (correct) {
           stats.done++; stats.correct++;
-          fb.innerHTML = `<div class="ok">✅ 对！⭐</div>`;
+          streak++;
+          const combo = streak >= 3 ? `<span class="combo">🔥 连击 x${streak}</span>` : "";
+          fb.innerHTML = `<div><span class="ok">✅ 对！⭐</span>${combo}</div>`;
+          card.querySelector(".wordcard").classList.add("launch");
+          sfx.correct();
           speak(w.term);
-          setTimeout(() => { resolve(nextCard()); }, 700);
+          setTimeout(() => { resolve(nextCard()); }, 750);
         } else {
+          streak = 0;
           wrongCount[w.id] = (wrongCount[w.id] || 0) + 1;
+          wrongTotal++;
           const cmp = diff(w.term.toLowerCase(), ans);
-          fb.innerHTML = `<div class="bad">✗ 正确：<span class="cmp">${cmp}</span></div>`;
+          fb.innerHTML = `<div><span class="bad">🚀 差一点点！正确：<span class="cmp">${cmp}</span></span></div>`;
+          card.querySelector(".wordcard").classList.add("shake");
+          sfx.wrong();
           speak(w.term);
           if (wrongCount[w.id] < 3) retry.push(w); // cap so kids can't soft-lock
           const next = $(`<button class="big" id="next">下一题</button>`);
@@ -196,12 +220,31 @@ async function startSession({ mode, unit_id, title }) {
 
   function finish() {
     const card = $(`<section class="study">
-      <h2>完成！🎉</h2>
-      <p>本组 ${stats.done} 题，拼对 ${stats.correct} 个。</p>
-      <button class="big" id="back">返回首页</button>
+      <h2>🛬 着陆成功！</h2>
+      <p>完成 ${stats.done} 个任务，拼对 ${stats.correct} 个，获得 ⭐ x ${stats.correct}！</p>
+      <button class="big" id="back">返回基地</button>
     </section>`);
+    celebrate();
+    sfx.finish();
     card.querySelector("#back").onclick = showHome;
     render(card);
+  }
+
+  function celebrate() {
+    const c = document.createElement("div");
+    c.className = "confetti";
+    const emo = ["⭐", "🎉", "🚀", "🌟", "✨"];
+    for (let i = 0; i < 18; i++) {
+      const s = document.createElement("span");
+      s.textContent = emo[i % emo.length];
+      s.style.setProperty("--x", Math.random() * 100 + "%");
+      s.style.setProperty("--d", 1.6 + Math.random() * 1.8 + "s");
+      s.style.setProperty("--r", Math.random() * 720 - 360 + "deg");
+      s.style.setProperty("--s", 18 + Math.random() * 16 + "px");
+      c.appendChild(s);
+    }
+    document.body.appendChild(c);
+    setTimeout(() => c.remove(), 4000);
   }
 }
 
