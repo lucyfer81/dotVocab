@@ -65,6 +65,19 @@ h1,h2,h3 { margin:0.4em 0; }
 }
 .spell-input:focus-within input { border-color: var(--pri); }   /* input 透明看不到 focus ring，靠边框变色提示 */
 
+/* ---------- 家长后台：输入控件统一外观 + 词库行/行内编辑 ---------- */
+body.admin input, body.admin select, body.admin textarea {
+  width: 100%; padding: 10px; font-size: 16px;
+  border: 2px solid #cbd5e1; border-radius: 10px; margin: 4px 0;
+}
+.wrow { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  background: #fff; border-radius: 12px; padding: 8px 14px; margin: 8px 0; }
+.wrow .wterm { text-align: left; }
+.wrow .wmean { color: #374151; }
+.wrow .wbtns { flex-shrink: 0; }
+.wrow .wbtns .link { margin-left: 8px; }
+.wedit { background: #eff6ff; border-radius: 12px; padding: 10px 14px; margin: 8px 0; text-align: left; }
+
 /* ---------- ≥1024px: iPad 横版 / 笔记本 适配 ---------- */
 @media (min-width: 1024px) {
   #app { max-width: 920px; padding: 24px; }

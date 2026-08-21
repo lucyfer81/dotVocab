@@ -57,7 +57,9 @@ async function dashboard(flash) {
         <pre id="impresult" class="muted"></pre>
       </div>
       <div class="admin-right">
-        <h2>词库 (${words.length})</h2><div id="wlist"></div>
+        <h2>词库 (<span id="wcount"></span>)</h2>
+        <input id="wsearch" placeholder="搜索单词或释义…" />
+        <div id="wlist"></div>
       </div>
     </div>
   </section>`);
@@ -110,8 +112,85 @@ async function dashboard(flash) {
       dashboard(`已重置 ${r.deleted} 条覆盖记录`);
     } catch (e) { wrap.querySelector("#r_result").textContent = e.message; }
   };
-  wrap.querySelector("#wlist").innerHTML = words.map(w =>
-    `<div class="stat">${esc(w.term)} — ${esc(w.meaning_cn)} <span class="muted">${esc(w.pos||"")}</span></div>`).join("");
+  // ---- 词库：搜索 + 行内编辑 + 删除 ----
+  const wlist = wrap.querySelector("#wlist");
+  const wcount = wrap.querySelector("#wcount");
+  const wsearch = wrap.querySelector("#wsearch");
+  let allWords = words;
+  let query = "";
+
+  function visibleWords() {
+    const q = query.trim().toLowerCase();
+    if (!q) return allWords;
+    return allWords.filter(w =>
+      w.term.toLowerCase().includes(q) || (w.meaning_cn || "").toLowerCase().includes(q));
+  }
+
+  function renderWordList() {
+    wcount.textContent = String(allWords.length);
+    const list = visibleWords();
+    wlist.innerHTML = "";
+    if (list.length === 0) {
+      wlist.appendChild($(`<p class="muted">${allWords.length === 0 ? "词库为空" : "没有匹配的单词"}</p>`));
+      return;
+    }
+    list.forEach(w => wlist.appendChild(wordRow(w)));
+  }
+
+  function wordRow(w) {
+    const row = $(`<div class="wrow">
+      <div class="wterm"><b>${esc(w.term)}</b> <span class="muted">${esc(w.pos || "")}</span>
+        <span class="wmean">${esc(w.meaning_cn)}</span></div>
+      <div class="wbtns"><button class="link w-edit">编辑</button><button class="link bad w-del">删除</button></div>
+    </div>`);
+    row.querySelector(".w-edit").onclick = () => editRow(w, row);
+    row.querySelector(".w-del").onclick = async () => {
+      if (!confirm(`确定删除「${w.term}」？\n它将从所有单元移除，两个孩子的学习记录也会一并删除。`)) return;
+      try {
+        await api(`/words/${w.id}`, { method: "DELETE" });
+        allWords = allWords.filter(x => x.id !== w.id);
+        renderWordList();
+      } catch (e) { alert(e.message); }
+    };
+    return row;
+  }
+
+  function editRow(w, row) {
+    const form = $(`<div class="wedit">
+      <div><b>${esc(w.term)}</b> <span class="muted">（单词拼写不可改；如需修改请删除后重新导入）</span></div>
+      <input class="e-meaning" placeholder="中文释义（必填）" />
+      <input class="e-pos" placeholder="词性，如 n / v" />
+      <input class="e-exen" placeholder="例句（英文）" />
+      <input class="e-excn" placeholder="例句（中文）" />
+      <div><button class="link e-save">保存</button> <button class="link e-cancel">取消</button> <span class="muted e-msg"></span></div>
+    </div>`);
+    const meaning = form.querySelector(".e-meaning");
+    meaning.value = w.meaning_cn || "";
+    form.querySelector(".e-pos").value = w.pos || "";
+    form.querySelector(".e-exen").value = w.example_en || "";
+    form.querySelector(".e-excn").value = w.example_cn || "";
+    form.querySelector(".e-cancel").onclick = () => { row.style.display = ""; form.remove(); };
+    form.querySelector(".e-save").onclick = async () => {
+      const body = {
+        meaning_cn: meaning.value.trim(),
+        pos: form.querySelector(".e-pos").value.trim() || null,
+        example_en: form.querySelector(".e-exen").value.trim() || null,
+        example_cn: form.querySelector(".e-excn").value.trim() || null,
+      };
+      if (!body.meaning_cn) { form.querySelector(".e-msg").textContent = "释义不能为空"; return; }
+      try {
+        await api(`/words/${w.id}`, { method: "PUT", body: JSON.stringify(body) });
+        Object.assign(w, body);
+        renderWordList();
+      } catch (e) { form.querySelector(".e-msg").textContent = e.message; }
+    };
+    row.style.display = "none";
+    row.after(form);
+    meaning.focus();
+  }
+
+  wsearch.oninput = () => { query = wsearch.value; renderWordList(); };
+  renderWordList();
   if (flash) wrap.querySelector("#r_result").textContent = flash;
   render(wrap);
 }
