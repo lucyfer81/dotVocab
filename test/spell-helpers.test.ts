@@ -31,8 +31,20 @@ describe("sanitizeValue", () => {
   it("preserves case (lowercasing happens at submit, not here)", () => {
     expect(sanitizeValue("MOTHER-IN-LAW")).toBe("MOTHER-IN-LAW");
   });
-  it("strips whitespace", () => {
-    expect(sanitizeValue("a b c")).toBe("abc");
+  it("keeps single spaces so phrases can be typed", () => {
+    expect(sanitizeValue("ice cream")).toBe("ice cream");
+  });
+  it("collapses consecutive spaces into one", () => {
+    expect(sanitizeValue("ice  cream")).toBe("ice cream");
+  });
+  it("strips leading spaces (term never starts with a space)", () => {
+    expect(sanitizeValue(" ice")).toBe("ice");
+  });
+  it("keeps a trailing space while typing mid-word", () => {
+    expect(sanitizeValue("ice ")).toBe("ice ");
+  });
+  it("strips tabs and newlines", () => {
+    expect(sanitizeValue("a\tb\nc")).toBe("abc");
   });
   it("strips emoji", () => {
     expect(sanitizeValue("🎉book")).toBe("book");

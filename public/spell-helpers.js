@@ -13,7 +13,10 @@ export function shouldRejectInputType(t) {
 }
 
 export function sanitizeValue(v) {
-  return v.replace(/[^a-zA-Z'-]/g, "");
+  // Allow single spaces (phrases like "ice cream"); collapse runs of
+  // whitespace to one space and drop leading ones. Trailing space is kept
+  // so typing continues naturally; final trim happens at submit.
+  return v.replace(/[^a-zA-Z' -]/g, "").replace(/\s+/g, " ").replace(/^ +/, "");
 }
 
 export function renderMirrorHtml(v, placeholder) {
