@@ -1,5 +1,6 @@
 import { shouldRejectInputType, sanitizeValue, renderMirrorHtml, diffHtml } from "./spell-helpers.js";
 import { sfx } from "./sfx.js";
+import { showConfirm } from "./ui.js";
 
 const API = "/api";
 let currentUser;
@@ -130,8 +131,14 @@ async function startSession({ mode, unit_id, title }) {
   let aborted = false;  // kid quit mid-session: stop pending timers/advances
   if (queue.length === 0) { render($(`<section><h2>${title || "今日任务"}</h2><p>太空里没有待复习的单词啦 🎉</p><button class="big" id="back">返回基地</button></section>`)); document.getElementById("back").onclick = showHome; return; }
 
-  function quitSession() {
-    if (!confirm("要返回基地吗？进度已经保存，下次可以继续哦")) return;
+  async function quitSession() {
+    const ok = await showConfirm({
+      title: "🚀 要返回基地吗？",
+      message: "进度已经保存，下次可以继续哦",
+      okText: "返回基地",
+      cancelText: "继续任务",
+    });
+    if (!ok) return;
     aborted = true;
     showHome();
   }

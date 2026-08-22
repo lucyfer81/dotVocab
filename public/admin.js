@@ -1,3 +1,5 @@
+import { showConfirm, showToast } from "./ui.js";
+
 const API = "/api/admin";
 let token = localStorage.getItem("dotvocab_admin_token") || "";
 
@@ -106,7 +108,12 @@ async function dashboard(flash) {
     let targetLabel = "全局";
     if (rScope.value === "unit") { body.unit_id = Number(rTarget.value); targetLabel = rTarget.selectedOptions[0]?.textContent || ""; }
     else if (rScope.value === "book") { body.book = rTarget.value; targetLabel = rTarget.value; }
-    if (!confirm(`确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度？\n相关单词会重新出现；已掌握度与星星保留。`)) return;
+    if (!await showConfirm({
+      title: "重置进度",
+      message: `确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度吗？\n相关单词会重新出现；已掌握度与星星保留。`,
+      okText: "确认重置",
+      danger: true,
+    })) return;
     try {
       const r = await api("/reset-progress", { method: "POST", body: JSON.stringify(body) });
       dashboard(`已重置 ${r.deleted} 条覆盖记录`);
@@ -145,12 +152,17 @@ async function dashboard(flash) {
     </div>`);
     row.querySelector(".w-edit").onclick = () => editRow(w, row);
     row.querySelector(".w-del").onclick = async () => {
-      if (!confirm(`确定删除「${w.term}」？\n它将从所有单元移除，两个孩子的学习记录也会一并删除。`)) return;
+      if (!await showConfirm({
+        title: "删除单词",
+        message: `确定删除「${w.term}」？\n它将从所有单元移除，两个孩子的学习记录也会一并删除。`,
+        okText: "删除",
+        danger: true,
+      })) return;
       try {
         await api(`/words/${w.id}`, { method: "DELETE" });
         allWords = allWords.filter(x => x.id !== w.id);
         renderWordList();
-      } catch (e) { alert(e.message); }
+      } catch (e) { showToast(e.message, "bad"); }
     };
     return row;
   }

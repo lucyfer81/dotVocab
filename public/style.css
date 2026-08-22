@@ -179,6 +179,34 @@ body.admin input, body.admin select, body.admin textarea {
 .wrow .wbtns .link { margin-left: 8px; }
 .wedit { background: #eff6ff; border-radius: 12px; padding: 10px 14px; margin: 8px 0; text-align: left; }
 
+/* ---------- 应用内弹窗 + 提示条：替代浏览器原生 confirm/alert ---------- */
+.modal-root { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; }
+.modal-mask { position:absolute; inset:0; background:rgba(4,8,24,.62); }
+.modal-card {
+  position:relative; width:min(92vw,360px); text-align:center;
+  background:var(--panel); color:var(--panel-ink);
+  border-radius:20px; padding:22px 20px; box-shadow:0 18px 60px rgba(0,0,0,.5);
+  animation: pop .3s;
+}
+.modal-title { margin:0 0 8px; font-size:22px; }
+.modal-msg { margin:0 0 16px; color:#4b5563; line-height:1.55; white-space:pre-line; }
+.modal-btns { display:flex; gap:10px; }
+.modal-btns .big { margin:0; }
+.modal-ok.danger { background:linear-gradient(180deg,#ff8a8a,#ef4444); color:#fff; box-shadow:0 5px 0 #b91c1c; }
+.modal-ok.danger:active { box-shadow:0 1px 0 #b91c1c; }
+
+.toast {
+  position:fixed; left:50%; bottom:28px; transform:translateX(-50%); z-index:60;
+  max-width:88vw; padding:12px 20px; border-radius:14px; font-size:16px;
+  background:#111a3a; color:#eef2ff; border:1px solid rgba(255,255,255,.2);
+  box-shadow:0 10px 30px rgba(0,0,0,.4); animation: toast-in .25s;
+}
+.toast.bad { background:#3b0d12; color:#ffd9d7; border-color:rgba(255,123,114,.4); }
+@keyframes toast-in { from { opacity:0; transform:translate(-50%, 10px); } }
+
+body.admin .modal-card { border-radius:14px; }
+body.admin .toast { background:#1f2937; color:#f9fafb; border-color:rgba(0,0,0,.15); }
+
 /* ---------- 家长后台：整体回退浅色主题（屏蔽星空/深底/玩具按钮） ---------- */
 body.admin { background:#fff7ed; color:#1f2937; }
 body.admin::before { display:none; }
