@@ -1,4 +1,4 @@
-import { shouldRejectInputType, sanitizeValue, renderMirrorHtml } from "./spell-helpers.js";
+import { shouldRejectInputType, sanitizeValue, renderMirrorHtml, diffHtml } from "./spell-helpers.js";
 import { sfx } from "./sfx.js";
 
 const API = "/api";
@@ -110,15 +110,31 @@ async function showHome() {
 // ---------- session ----------
 async function startSession({ mode, unit_id, title }) {
   let words;
-  if (mode === "due") words = await api(`/session/due?user_id=${currentUser.id}`);
-  else words = await api(`/session/unit`, { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id }) });
+  try {
+    if (mode === "due") words = await api(`/session/due?user_id=${currentUser.id}`);
+    else words = await api(`/session/unit`, { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id }) });
+  } catch (e) {
+    render($(`<section><h2>${escapeHtml(title || "今日任务")}</h2>
+      <p class="bad">任务加载失败了：${escapeHtml(e.message)}</p>
+      <button class="big" id="back">返回基地</button></section>`));
+    document.getElementById("back").onclick = showHome;
+    return;
+  }
   const queue = words.slice();
   const retry = [];
   const wrongCount = {}; // per-word wrong-attempt count, to cap retries
+  const dropped = [];    // words that exhausted retries without a single success
   const stats = { done: 0, correct: 0 };
   let wrongTotal = 0;   // total wrong attempts (for progress)
   let streak = 0;       // 连击：连续答对数
+  let aborted = false;  // kid quit mid-session: stop pending timers/advances
   if (queue.length === 0) { render($(`<section><h2>${title || "今日任务"}</h2><p>太空里没有待复习的单词啦 🎉</p><button class="big" id="back">返回基地</button></section>`)); document.getElementById("back").onclick = showHome; return; }
+
+  function quitSession() {
+    if (!confirm("要返回基地吗？进度已经保存，下次可以继续哦")) return;
+    aborted = true;
+    showHome();
+  }
 
   function updateProgress() {
     const attempted = stats.done + wrongTotal;
@@ -134,6 +150,7 @@ async function startSession({ mode, unit_id, title }) {
   await nextCard();
 
   async function nextCard() {
+    if (aborted) return;
     if (queue.length === 0 && retry.length) { queue.push(...retry.splice(0)); }
     if (queue.length === 0) return finish();
     const w = queue.shift();
@@ -144,7 +161,7 @@ async function startSession({ mode, unit_id, title }) {
   function spellingCard(w) {
     return new Promise((resolve) => {
       const card = $(`<section class="study">
-        <h2>${escapeHtml(title || "今日任务")}</h2>
+        <header class="top"><h2>${escapeHtml(title || "今日任务")}</h2><button class="link" id="quit">✖️ 退出</button></header>
         <div class="progress"><i></i></div>
         <div class="wordcard">
           <button class="tap-word" id="play" aria-label="听发音" style="margin-bottom:1rem;">
@@ -164,6 +181,7 @@ async function startSession({ mode, unit_id, title }) {
         <button class="big" id="submit">提交</button>
       </section>`);
       card.querySelector("#play").onclick = () => { speak(w.term); inp.focus(); };
+      card.querySelector("#quit").onclick = quitSession;
       render(card);
       const inp = card.querySelector("#ans");
       const mirror = card.querySelector("#mirror");
@@ -176,11 +194,21 @@ async function startSession({ mode, unit_id, title }) {
       async function submit() {
         if (submitted) return; // ignore repeated submits (double Enter)
         submitted = true;
-        card.querySelector("#submit").onclick = null;
         const ans = inp.value.trim().toLowerCase();
         const correct = ans === w.term.toLowerCase();
-        await api("/review", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, word_id: w.id, correct }) });
-        if (unit_id) await api("/cover", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id, word_id: w.id }) });
+        try {
+          await api("/review", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, word_id: w.id, correct }) });
+          // 单元进度只在答对时推进：答错的词不算"学会"，下次学新词时还会出现
+          if (unit_id && correct) await api("/cover", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id, word_id: w.id }) });
+        } catch (e) {
+          // 网络失败不能把整局卡死：恢复按钮让孩子重试
+          submitted = false;
+          card.querySelector("#fb").innerHTML = `<div><span class="bad">😵 网络开小差了：${escapeHtml(e.message)}，再试一次！</span></div>`;
+          inp.focus();
+          return;
+        }
+        if (aborted) return;
+        card.querySelector("#submit").onclick = null;
         const fb = card.querySelector("#fb");
         if (correct) {
           stats.done++; stats.correct++;
@@ -190,42 +218,42 @@ async function startSession({ mode, unit_id, title }) {
           card.querySelector(".wordcard").classList.add("launch");
           sfx.correct();
           speak(w.term);
-          setTimeout(() => { resolve(nextCard()); }, 750);
+          setTimeout(() => { if (!aborted) resolve(nextCard()); }, 750);
         } else {
           streak = 0;
           wrongCount[w.id] = (wrongCount[w.id] || 0) + 1;
           wrongTotal++;
-          const cmp = diff(w.term.toLowerCase(), ans);
+          const cmp = diffHtml(w.term.toLowerCase(), ans);
           fb.innerHTML = `<div><span class="bad">🚀 差一点点！正确：<span class="cmp">${cmp}</span></span></div>`;
           card.querySelector(".wordcard").classList.add("shake");
           sfx.wrong();
           speak(w.term);
           if (wrongCount[w.id] < 3) retry.push(w); // cap so kids can't soft-lock
+          else dropped.push(w);
           const next = $(`<button class="big" id="next">下一题</button>`);
           card.querySelector("#submit").replaceWith(next);
-          next.onclick = () => resolve(nextCard());
+          next.onclick = () => { if (!aborted) resolve(nextCard()); };
+          next.focus(); // focused button answers Enter/Space — same muscle memory as submitting
         }
       }
     });
   }
 
-  function diff(answer, given) {
-    let out = "";
-    for (let i = 0; i < answer.length; i++) {
-      const a = answer[i], g = given[i] || "";
-      out += g === a ? `<b class="ok">${escapeHtml(a)}</b>` : `<b class="bad">${escapeHtml(a)}</b>`;
-    }
-    return out;
-  }
-
   function finish() {
+    const practice = dropped.length
+      ? `<div class="dropped"><p>💪 这几个词还有点难，点一点再听一遍：</p>
+         <p class="dropped-words">${dropped.map((w) => `<button class="link wterm" data-term="${escapeHtml(w.term)}">🔊 ${escapeHtml(w.term)}</button>`).join("")}</p>
+         <p><small>回基地后点「今日任务」可以马上再挑战它们！</small></p></div>`
+      : "";
     const card = $(`<section class="study">
       <h2>🛬 着陆成功！</h2>
       <p>完成 ${stats.done} 个任务，拼对 ${stats.correct} 个，获得 ⭐ x ${stats.correct}！</p>
+      ${practice}
       <button class="big" id="back">返回基地</button>
     </section>`);
     celebrate();
     sfx.finish();
+    card.querySelectorAll(".wterm").forEach((b) => { b.onclick = () => speak(b.dataset.term); });
     card.querySelector("#back").onclick = showHome;
     render(card);
   }

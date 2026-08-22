@@ -177,6 +177,89 @@ describe("kid: home + sessions", () => {
   });
 });
 
+describe("kid: review/cover input validation (no orphan rows)", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("POST /api/review with unknown user_id => 404, writes nothing", async () => {
+    const wid = await seedWord("vuser_word", "验用户");
+    const res = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 424242, word_id: wid, correct: true }),
+    });
+    expect(res.status).toBe(404);
+    expect(await env.DB.prepare("SELECT user_id FROM user_stats WHERE user_id=424242").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT user_id FROM user_word_state WHERE user_id=424242").first()).toBeNull();
+  });
+
+  it("POST /api/review with unknown word_id => 404, writes nothing", async () => {
+    const res = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, word_id: 987654, correct: true }),
+    });
+    expect(res.status).toBe(404);
+    expect(await env.DB.prepare("SELECT user_id FROM user_word_state WHERE user_id=1 AND word_id=987654").first()).toBeNull();
+  });
+
+  it("POST /api/cover with unknown user/unit/word => 404, writes nothing", async () => {
+    const h = { "content-type": "application/json" };
+    const wid = await seedWord("vcover_word", "验覆盖");
+    const u = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('验证书','U1') RETURNING id").first<{ id: number }>();
+    const cases = [
+      { user_id: 424243, unit_id: u!.id, word_id: wid }, // unknown user
+      { user_id: 1, unit_id: 987654, word_id: wid },     // unknown unit
+      { user_id: 1, unit_id: u!.id, word_id: 987654 },   // unknown word
+    ];
+    for (const body of cases) {
+      const res = await SELF.fetch("https://example.com/api/cover", { method: "POST", headers: h, body: JSON.stringify(body) });
+      expect(res.status).toBe(404);
+    }
+    expect(await env.DB.prepare("SELECT user_id FROM user_unit_word_seen WHERE user_id=424243").first()).toBeNull();
+    expect(await env.DB.prepare(
+      "SELECT word_id FROM user_unit_word_seen WHERE user_id=1 AND unit_id=? AND word_id=?"
+    ).bind(u!.id, wid).first()).toBeNull();
+  });
+});
+
+describe("kid: stats updates are atomic (no lost stars)", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("concurrent correct reviews award every star", async () => {
+    const before = await env.DB.prepare("SELECT stars FROM user_stats WHERE user_id=2").first<{ stars: number }>();
+    const base = before?.stars ?? 0;
+    const words = [
+      await seedWord("conc_a", "并甲"),
+      await seedWord("conc_b", "并乙"),
+      await seedWord("conc_c", "并丙"),
+      await seedWord("conc_d", "并丁"),
+      await seedWord("conc_e", "并戊"),
+    ];
+    await Promise.all(words.map((wid) =>
+      SELF.fetch("https://example.com/api/review", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: 2, word_id: wid, correct: true }),
+      })
+    ));
+    const after = await env.DB.prepare("SELECT stars FROM user_stats WHERE user_id=2").first<{ stars: number }>();
+    expect(after?.stars ?? 0).toBe(base + words.length);
+  });
+
+  it("streak still bumps on a new day after the atomic rewrite", async () => {
+    const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
+    await env.DB.prepare(
+      "INSERT INTO user_stats (user_id, stars, streak_days, last_play_date) VALUES (1, 10, 3, ?1) " +
+      "ON CONFLICT(user_id) DO UPDATE SET stars=10, streak_days=3, last_play_date=?1"
+    ).bind(yesterday).run();
+    const wid = await seedWord("streak_next_day", "连击词");
+    const res = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, word_id: wid, correct: true }),
+    });
+    const data = await json(res);
+    expect(data.streak_days).toBe(4);
+    expect(data.stars).toBe(11);
+  });
+});
+
 describe("admin: units + import", () => {
   beforeAll(async () => { await applySchema(); });
 

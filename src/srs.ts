@@ -18,7 +18,10 @@ export function emptyState(now: number): SrsState {
 export function updateSrs(prev: SrsState, correct: boolean, now: number): SrsState {
   if (correct) {
     const reps = prev.reps + 1;
-    const idx = Math.min(reps, INTERVALS_DAYS.length - 1);
+    // 错过的词复习间隔降一档：订正后的第一次正确保持"现在到期"，
+    // 让它当天再复习一次，而不是和一次做对的词一样隔天再见。
+    const stepBack = prev.lapses > 0 ? 1 : 0;
+    const idx = Math.max(0, Math.min(reps, INTERVALS_DAYS.length - 1) - stepBack);
     return {
       reps,
       interval_days: INTERVALS_DAYS[idx],

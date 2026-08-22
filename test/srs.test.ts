@@ -42,3 +42,39 @@ describe("updateSrs", () => {
     expect(MASTERY_REPS).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("updateSrs: lapse recovery (订正后不能和一次做对一样)", () => {
+  it("first correct after a wrong stays due now (same-day reinforcement)", () => {
+    let s = updateSrs(emptyState(NOW), true, NOW);
+    s = updateSrs(s, false, NOW + DAY);
+    const corrected = updateSrs(s, true, NOW + DAY + 60_000);
+    expect(corrected.reps).toBe(1);
+    expect(corrected.interval_days).toBe(0);
+    expect(corrected.due_at).toBe(NOW + DAY + 60_000);
+    expect(corrected.lapses).toBe(1);
+  });
+
+  it("lapsed word climbs the ladder one step behind a fresh word", () => {
+    let s = updateSrs(emptyState(NOW), false, NOW);
+    s = updateSrs(s, true, NOW + 1_000);   // recovering correct: 0 days
+    expect(s.interval_days).toBe(INTERVALS_DAYS[0]);
+    s = updateSrs(s, true, NOW + DAY);     // reps=2 → one rung behind fresh
+    expect(s.interval_days).toBe(INTERVALS_DAYS[1]);
+    s = updateSrs(s, true, NOW + 2 * DAY);
+    expect(s.interval_days).toBe(INTERVALS_DAYS[2]);
+  });
+
+  it("lapsed word caps one rung below the max (permanent denser ladder)", () => {
+    let s = updateSrs(emptyState(NOW), false, NOW);
+    for (let i = 0; i < 60; i++) s = updateSrs(s, true, NOW + i * DAY);
+    expect(s.interval_days).toBe(INTERVALS_DAYS[INTERVALS_DAYS.length - 2]);
+  });
+
+  it("lapse-free word keeps the original fast ladder (regression guard)", () => {
+    let s = emptyState(NOW);
+    s = updateSrs(s, true, NOW);
+    expect(s.interval_days).toBe(INTERVALS_DAYS[1]);
+    s = updateSrs(s, true, NOW + DAY);
+    expect(s.interval_days).toBe(INTERVALS_DAYS[2]);
+  });
+});

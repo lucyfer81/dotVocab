@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldRejectInputType, sanitizeValue, renderMirrorHtml } from "../public/spell-helpers.js";
+import { shouldRejectInputType, sanitizeValue, renderMirrorHtml, diffHtml } from "../public/spell-helpers.js";
 
 describe("shouldRejectInputType", () => {
   it("rejects replacement-style inserts (iOS autocorrect, paste, drop)", () => {
@@ -63,5 +63,25 @@ describe("renderMirrorHtml", () => {
   });
   it("escapes html-special chars in placeholder", () => {
     expect(renderMirrorHtml("", `<x>`)).toBe(`<span class="ph">&lt;x&gt;</span><i class="caret"></i>`);
+  });
+});
+
+describe("diffHtml", () => {
+  it("marks matching letters ok and mismatching letters bad, aligned by position", () => {
+    expect(diffHtml("cat", "cat")).toBe(`<b class="ok">c</b><b class="ok">a</b><b class="ok">t</b>`);
+    expect(diffHtml("cat", "cap")).toBe(`<b class="ok">c</b><b class="ok">a</b><b class="bad">t</b>`);
+  });
+  it("shows shorter answers as fully bad", () => {
+    expect(diffHtml("cat", "ca")).toBe(`<b class="ok">c</b><b class="ok">a</b><b class="bad">t</b>`);
+    expect(diffHtml("cat", "")).toBe(`<b class="bad">c</b><b class="bad">a</b><b class="bad">t</b>`);
+  });
+  it("shows extra typed letters as strikethrough extras instead of dropping them", () => {
+    expect(diffHtml("cat", "catts")).toBe(
+      `<b class="ok">c</b><b class="ok">a</b><b class="ok">t</b><b class="bad extra">ts</b>`
+    );
+  });
+  it("escapes html-special letters (defense in depth)", () => {
+    expect(diffHtml("don't", "dont")).toContain(`&#39;`);
+    expect(diffHtml("don't", "don'tt")).toContain(`<b class="bad extra">t</b>`);
   });
 });

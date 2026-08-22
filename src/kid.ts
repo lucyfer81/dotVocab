@@ -11,22 +11,24 @@ function dayStr(ms: number): string {
 
 async function applyReviewStats(db: D1Database, userId: number, now: number, correct: boolean) {
   const today = dayStr(now);
-  const row = await db.prepare(
-    "SELECT stars, streak_days, last_play_date FROM user_stats WHERE user_id=?"
-  ).bind(userId).first<{ stars: number; streak_days: number; last_play_date: string | null }>();
-  let stars = row?.stars ?? 0;
-  let streak = row?.streak_days ?? 0;
-  const last = row?.last_play_date ?? null;
-  if (last !== today) {
-    const yesterday = dayStr(now - 86_400_000);
-    streak = last === yesterday ? streak + 1 : 1;
-  }
-  if (correct) stars += 1;
+  const yesterday = dayStr(now - 86_400_000);
+  const starDelta = correct ? 1 : 0;
+  // 单条原子 UPSERT：读-改-写版本在并发请求（双端同时玩/重复提交）下会丢星星。
   await db.prepare(
-    `INSERT INTO user_stats (user_id, stars, streak_days, last_play_date) VALUES (?,?,?,?)
-     ON CONFLICT(user_id) DO UPDATE SET stars=excluded.stars, streak_days=excluded.streak_days, last_play_date=excluded.last_play_date`
-  ).bind(userId, stars, streak, today).run();
-  return { stars, streak_days: streak };
+    `INSERT INTO user_stats (user_id, stars, streak_days, last_play_date) VALUES (?1, ?2, 1, ?3)
+     ON CONFLICT(user_id) DO UPDATE SET
+       stars = user_stats.stars + excluded.stars,
+       streak_days = CASE
+         WHEN user_stats.last_play_date = excluded.last_play_date THEN user_stats.streak_days
+         WHEN user_stats.last_play_date = ?4 THEN user_stats.streak_days + 1
+         ELSE 1
+       END,
+       last_play_date = excluded.last_play_date`
+  ).bind(userId, starDelta, today, yesterday).run();
+  const row = await db.prepare(
+    "SELECT stars, streak_days FROM user_stats WHERE user_id=?"
+  ).bind(userId).first<{ stars: number; streak_days: number }>();
+  return { stars: row?.stars ?? 0, streak_days: row?.streak_days ?? 0 };
 }
 
 kid.get("/users", async (c) => {
@@ -39,6 +41,10 @@ kid.get("/users", async (c) => {
 kid.post("/review", async (c) => {
   const body = await c.req.json<{ user_id: number; word_id: number; correct: boolean }>();
   if (!body.user_id || !body.word_id) return c.json({ error: "参数不完整" }, 400);
+  const refs = await c.env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM users WHERE id=?1) AS u, (SELECT COUNT(*) FROM words WHERE id=?2) AS w"
+  ).bind(body.user_id, body.word_id).first<{ u: number; w: number }>();
+  if (!refs?.u || !refs?.w) return c.json({ error: "用户或单词不存在" }, 404);
   const now = Date.now();
   const prev = await c.env.DB.prepare(
     "SELECT reps, interval_days, due_at, lapses, last_reviewed_at FROM user_word_state WHERE user_id=? AND word_id=?"
@@ -57,6 +63,10 @@ kid.post("/review", async (c) => {
 kid.post("/cover", async (c) => {
   const body = await c.req.json<{ user_id: number; unit_id: number; word_id: number }>();
   if (!body.user_id || !body.unit_id || !body.word_id) return c.json({ error: "参数不完整" }, 400);
+  const refs = await c.env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM users WHERE id=?1) AS u, (SELECT COUNT(*) FROM units WHERE id=?2) AS un, (SELECT COUNT(*) FROM words WHERE id=?3) AS w"
+  ).bind(body.user_id, body.unit_id, body.word_id).first<{ u: number; un: number; w: number }>();
+  if (!refs?.u || !refs?.un || !refs?.w) return c.json({ error: "用户、单元或单词不存在" }, 404);
   await c.env.DB.prepare(
     "INSERT OR IGNORE INTO user_unit_word_seen (user_id, unit_id, word_id, first_seen_at) VALUES (?,?,?,?)"
   ).bind(body.user_id, body.unit_id, body.word_id, Date.now()).run();

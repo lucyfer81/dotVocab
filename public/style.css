@@ -106,6 +106,14 @@ h1,h2,h3 { margin:0.4em 0; }
 .ok { color:var(--ok); } .bad { color:var(--bad); }
 .fb .ok, .fb .bad { display:inline-block; animation: pop .4s; }
 .cmp { font-family:monospace; font-size:26px; letter-spacing:2px; }
+.cmp b.extra { text-decoration:line-through; opacity:.65; } /* 多打的字母：删除线提示 */
+
+/* 结算页：未掌握词提示面板（点 🔊 可重听） */
+.dropped {
+  background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18);
+  border-radius:14px; padding:10px 14px; margin:8px 0; text-align:left;
+}
+.dropped-words .wterm { display:inline-block; margin:4px 10px 0 0; font-size:18px; font-weight:700; }
 
 /* 连击徽章 */
 .combo {
