@@ -95,6 +95,9 @@ kid.get("/home", async (c) => {
   const due = await c.env.DB.prepare(
     "SELECT COUNT(*) as n FROM user_word_state WHERE user_id=? AND due_at <= ?"
   ).bind(userId, now).first<{ n: number }>();
+  const mistakes = await c.env.DB.prepare(
+    "SELECT COUNT(*) as n FROM user_word_state WHERE user_id=? AND lapses > 0 AND reps < 2"
+  ).bind(userId).first<{ n: number }>();
   const { results } = await c.env.DB.prepare(
     `SELECT u.id as unit_id, u.book, u.unit, u.sort_key,
        COUNT(uw.word_id) AS total,
@@ -115,6 +118,7 @@ kid.get("/home", async (c) => {
     stars: stats?.stars ?? 0,
     streak_days: stats?.streak_days ?? 0,
     due_count: due?.n ?? 0,
+    mistake_count: mistakes?.n ?? 0,
     units,
   });
 });
@@ -130,6 +134,20 @@ kid.get("/session/due", async (c) => {
      WHERE s.user_id = ? AND s.due_at <= ?
      ORDER BY s.due_at ASC`
   ).bind(userId, now).all();
+  return c.json(results);
+});
+
+kid.get("/session/mistakes", async (c) => {
+  const userId = Number(c.req.query("user_id"));
+  if (!userId) return c.json({ error: "缺少 user_id" }, 400);
+  // 错题本成员纯派生：错过(lapses>0)且毕业后连对不足 2 次(reps<2)
+  const { results } = await c.env.DB.prepare(
+    `SELECT w.id, w.term, w.pos, w.meaning_cn, w.example_en, w.example_cn,
+            s.reps, s.interval_days, s.due_at, s.lapses
+     FROM user_word_state s JOIN words w ON w.id = s.word_id
+     WHERE s.user_id = ? AND s.lapses > 0 AND s.reps < 2
+     ORDER BY RANDOM()`
+  ).bind(userId).all();
   return c.json(results);
 });
 

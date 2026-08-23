@@ -713,3 +713,47 @@ describe("kid: wrong-answer events (mistake book logging)", () => {
     expect((row?.answer as string)?.length).toBe(100);
   });
 });
+
+describe("kid: mistake book derived queue + home count", () => {
+  beforeAll(async () => { await applySchema(); });
+  const h = { "content-type": "application/json" };
+  const post = (url: string, body: unknown) =>
+    SELF.fetch("https://example.com" + url, { method: "POST", headers: h, body: JSON.stringify(body) });
+
+  it("wrong word enters book; 2 consecutive corrects graduate it; re-wrong re-enters", async () => {
+    const wid = await seedWord("mb_word", "册甲");
+    const inBook = async () => {
+      const res = await SELF.fetch("https://example.com/api/session/mistakes?user_id=1");
+      return (await json(res) as any[]).some((w) => w.term === "mb_word");
+    };
+    expect(await inBook()).toBe(false); // 全新词不在册
+    await post("/api/review", { user_id: 1, word_id: wid, correct: false });
+    expect(await inBook()).toBe(true);  // 错一次进本
+    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
+    expect(await inBook()).toBe(true);  // 只对一次仍在册
+    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
+    expect(await inBook()).toBe(false); // 连对 2 次毕业
+    await post("/api/review", { user_id: 1, word_id: wid, correct: false });
+    expect(await inBook()).toBe(true);  // 毕业后再错重新进本
+  });
+
+  it("home mistake_count tracks book size", async () => {
+    const wid = await seedWord("mb_count", "册乙");
+    const home = async () =>
+      (await json(await SELF.fetch("https://example.com/api/home?user_id=1")) as any).mistake_count;
+    const before = await home();
+    await post("/api/review", { user_id: 1, word_id: wid, correct: false });
+    expect(await home()).toBe(before + 1);
+    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
+    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
+    expect(await home()).toBe(before); // 毕业, 计数回落
+  });
+
+  it("empty book returns []; missing user_id => 400", async () => {
+    const res = await SELF.fetch("https://example.com/api/session/mistakes?user_id=910");
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual([]);
+    const bad = await SELF.fetch("https://example.com/api/session/mistakes");
+    expect(bad.status).toBe(400);
+  });
+});
