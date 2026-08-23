@@ -1,7 +1,8 @@
 import { shouldRejectInputType, sanitizeValue, renderMirrorHtml, diffHtml } from "./spell-helpers.js";
 import { sfx } from "./sfx.js";
-import { showConfirm } from "./ui.js";
+import { showConfirm, showToast } from "./ui.js";
 import { createTtsPlayer } from "./tts-player.js";
+import { recordAnswer } from "./review-client.js";
 
 const API = "/api";
 let currentUser;
@@ -246,17 +247,17 @@ async function startSession({ mode, unit_id, title }) {
         submitted = true;
         const ans = s.inp.value.trim().toLowerCase();
         const correct = ans === w.term.toLowerCase();
-        try {
-          await api("/review", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, word_id: w.id, correct }) });
-          // 单元进度只在答对时推进：答错的词不算"学会"，下次学新词时还会出现
-          if (unit_id && correct) await api("/cover", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id, word_id: w.id }) });
-        } catch (e) {
-          // 网络失败不能把整局卡死：恢复按钮让孩子重试
-          submitted = false;
-          s.fb.innerHTML = `<div><span class="bad">😵 网络开小差了：${escapeHtml(e.message)}，再试一次！</span></div>`;
-          s.inp.focus();
-          return;
-        }
+        // 乐观 UI：对错本地即判、反馈立刻渲染；/review 与 /cover 后台并行上报，
+        // 一滴不阻塞判定。上报失败只弹非阻塞提示——进度没存上，下次这个词
+        // 还会出现，对孩子无损，绝不让网络卡住学习节奏。
+        recordAnswer({
+          post: (path, body) => api(path, { method: "POST", body: JSON.stringify(body) }),
+          userId: currentUser.id,
+          wordId: w.id,
+          correct,
+          unitId: unit_id || null,
+          onError: () => showToast("😵 网络开小差了，刚才的进度可能没存上", "bad"),
+        });
         if (aborted) return;
         actionHandler = null; // 反馈期间按钮/Enter 不再响应
         if (correct) {
