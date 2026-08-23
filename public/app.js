@@ -258,7 +258,8 @@ async function startSession({ mode, unit_id, title }) {
       async function submit() {
         if (submitted) return; // ignore repeated submits (double Enter)
         submitted = true;
-        const ans = s.inp.value.trim().toLowerCase();
+        const raw = s.inp.value.trim();
+        const ans = raw.toLowerCase();
         const correct = ans === w.term.toLowerCase();
         // 乐观 UI：对错本地即判、反馈立刻渲染；/review 与 /cover 后台并行上报，
         // 一滴不阻塞判定。上报失败只弹非阻塞提示——进度没存上，下次这个词
@@ -270,7 +271,7 @@ async function startSession({ mode, unit_id, title }) {
           correct,
           unitId: unit_id || null,
           source,
-          answer: correct ? null : ans,
+          answer: correct ? null : raw,
           onResult: (r) => { if (r && r.state) finalStates[w.id] = r.state; },
           onError: () => showToast("😵 网络开小差了，刚才的进度可能没存上", "bad"),
         });

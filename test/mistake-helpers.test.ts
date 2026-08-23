@@ -24,4 +24,9 @@ describe("countGraduated", () => {
     expect(countGraduated([], {})).toBe(0);
     expect(countGraduated([q(1, 1, 0)], {})).toBe(0);
   });
+
+  it("a word already graduated at session start is excluded", () => {
+    const queue = [q(4, 1, 2)]; // lapses>0 but reps>=2: not in book at start
+    expect(countGraduated(queue, { 4: { reps: 3 } })).toBe(0);
+  });
 });
