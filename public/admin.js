@@ -42,6 +42,7 @@ async function dashboard(flash) {
       <select id="r_scope"><option value="unit">按单元</option><option value="book">按课本</option><option value="global">全局</option></select>
       <select id="r_target"></select>
       <select id="r_user"></select>
+      <label class="r_deep"><input type="checkbox" id="r_deep" /> 同时重置掌握度与星星/连击</label>
       <button class="big" id="r_go">重置进度</button>
       <pre id="r_result" class="muted"></pre>
     </div>
@@ -104,19 +105,25 @@ async function dashboard(flash) {
     const userVal = rUser.value;
     const user_ids = userVal === "all" ? progress.map(u => u.id) : [Number(userVal)];
     const userLabel = userVal === "all" ? "两个孩子" : (progress.find(u => String(u.id) === userVal)?.name || "");
+    const deep = wrap.querySelector("#r_deep").checked;
     const body = { scope: rScope.value, user_ids };
+    if (deep) body.deep = true;
     let targetLabel = "全局";
     if (rScope.value === "unit") { body.unit_id = Number(rTarget.value); targetLabel = rTarget.selectedOptions[0]?.textContent || ""; }
     else if (rScope.value === "book") { body.book = rTarget.value; targetLabel = rTarget.value; }
     if (!await showConfirm({
       title: "重置进度",
-      message: `确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度吗？\n相关单词会重新出现；已掌握度与星星保留。`,
+      message: deep
+        ? `确定深度重置「${targetLabel}」的 ${userLabel} 吗？\n单元覆盖记录、范围内单词的掌握度将清除，星星与连击全部归零，单词回到新词状态。`
+        : `确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度吗？\n相关单词会重新出现；已掌握度与星星保留。`,
       okText: "确认重置",
       danger: true,
     })) return;
     try {
       const r = await api("/reset-progress", { method: "POST", body: JSON.stringify(body) });
-      dashboard(`已重置 ${r.deleted} 条覆盖记录`);
+      dashboard(deep
+        ? `已重置 ${r.deleted} 条覆盖记录、${r.state_deleted} 条掌握度记录${r.stats_reset ? "，星星/连击已归零" : ""}`
+        : `已重置 ${r.deleted} 条覆盖记录`);
     } catch (e) { wrap.querySelector("#r_result").textContent = e.message; }
   };
   // ---- 词库：搜索 + 行内编辑 + 删除 ----

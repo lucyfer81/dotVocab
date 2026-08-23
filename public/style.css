@@ -178,6 +178,8 @@ body.admin input, body.admin select, body.admin textarea {
 .wrow .wbtns { flex-shrink: 0; }
 .wrow .wbtns .link { margin-left: 8px; }
 .wedit { background: #eff6ff; border-radius: 12px; padding: 10px 14px; margin: 8px 0; text-align: left; }
+.r_deep { display: flex; align-items: center; gap: 6px; margin: 6px 0; text-align: left; }
+.r_deep input { width: auto; margin: 0; }
 
 /* ---------- 应用内弹窗 + 提示条：替代浏览器原生 confirm/alert ---------- */
 .modal-root { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; }

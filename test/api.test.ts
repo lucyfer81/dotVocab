@@ -540,4 +540,114 @@ describe("admin: reset-progress", () => {
     const b2 = await env.DB.prepare("SELECT COUNT(*) as n FROM user_unit_word_seen WHERE user_id=905 AND unit_id=?").bind(u!.id).first<{ n: number }>();
     expect(b2?.n).toBe(0);
   });
+
+  async function seedState(userId: number, wordId: number, reps = 3) {
+    await env.DB.prepare(
+      "INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses) VALUES (?,?,?,30,0,0)"
+    ).bind(userId, wordId, reps).run();
+  }
+  async function seedStats(userId: number, stars = 50, streak = 7) {
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO user_stats (user_id, stars, streak_days, last_play_date) VALUES (?,?,?,'2026-07-31')"
+    ).bind(userId, stars, streak).run();
+  }
+
+  it("deep+unit clears coverage + that unit's word state only + resets stats", async () => {
+    const ua = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('深 reset 书','DU-A') RETURNING id").first<{ id: number }>();
+    const ub = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('深 reset 书','DU-B') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("deep_a1", "深甲");
+    const w2 = await seedWord("deep_a2", "深乙");
+    const w3 = await seedWord("deep_b1", "深丙");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?),(?,?)")
+      .bind(ua!.id, w1, ua!.id, w2, ub!.id, w3).run();
+    await seedCoverage(906, ua!.id, [w1, w2]);
+    await seedCoverage(906, ub!.id, [w3]);
+    await seedState(906, w1);
+    await seedState(906, w2);
+    await seedState(906, w3);
+    await seedStats(906);
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "unit", unit_id: ua!.id, user_ids: [906], deep: true }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.deleted).toBe(2);
+    expect(data.state_deleted).toBe(2);
+    expect(data.stats_reset).toBe(1);
+
+    const states = await env.DB.prepare(
+      "SELECT word_id FROM user_word_state WHERE user_id=906 ORDER BY word_id"
+    ).all<{ word_id: number }>();
+    expect(states.results.map((r: { word_id: number }) => r.word_id)).toEqual([w3]); // 仅另一单元的词保留
+    const stats = await env.DB.prepare("SELECT stars, streak_days, last_play_date FROM user_stats WHERE user_id=906").first<any>();
+    expect(stats?.stars).toBe(0);
+    expect(stats?.streak_days).toBe(0);
+    expect(stats?.last_play_date).toBeNull();
+  });
+
+  it("deep+book clears state for that book's words only; other book intact", async () => {
+    const u1 = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('深 reset 书X','DBX1') RETURNING id").first<{ id: number }>();
+    const uY = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('深 reset 书Y','DBY1') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("deepbook_a", "深书甲");
+    const w2 = await seedWord("deepbook_b", "深书乙");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?)")
+      .bind(u1!.id, w1, uY!.id, w2).run();
+    await seedCoverage(907, u1!.id, [w1]);
+    await seedCoverage(907, uY!.id, [w2]);
+    await seedState(907, w1);
+    await seedState(907, w2);
+    await seedStats(907, 8, 2);
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "book", book: "深 reset 书X", user_ids: [907], deep: true }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.deleted).toBe(1);
+    expect(data.state_deleted).toBe(1);
+    expect(data.stats_reset).toBe(1);
+
+    const st = await env.DB.prepare("SELECT reps FROM user_word_state WHERE user_id=907 AND word_id=?").bind(w2).first<{ reps: number }>();
+    expect(st?.reps).toBe(3); // 其他课本的掌握度保留
+  });
+
+  it("deep+global clears all state + resets stats; non-deep leaves them intact", async () => {
+    const u = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('深 reset 书G','DG1') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("deepglob_a", "深全甲");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?)").bind(u!.id, w1).run();
+    await seedCoverage(908, u!.id, [w1]);
+    await seedState(908, w1, 5);
+    await seedStats(908, 99, 12);
+
+    // 非 deep：只清覆盖，掌握度与星星保留
+    const r1 = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "global", user_ids: [908] }),
+    });
+    const d1: any = await json(r1);
+    expect(d1.deleted).toBe(1);
+    expect(d1.state_deleted).toBe(0);
+    expect(d1.stats_reset).toBe(0);
+    let st = await env.DB.prepare("SELECT reps FROM user_word_state WHERE user_id=908 AND word_id=?").bind(w1).first<{ reps: number }>();
+    expect(st?.reps).toBe(5);
+
+    // deep：全清
+    await seedCoverage(908, u!.id, [w1]);
+    const r2 = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "global", user_ids: [908], deep: true }),
+    });
+    const d2: any = await json(r2);
+    expect(d2.deleted).toBe(1);
+    expect(d2.state_deleted).toBe(1);
+    expect(d2.stats_reset).toBe(1);
+    st = await env.DB.prepare("SELECT reps FROM user_word_state WHERE user_id=908 AND word_id=?").bind(w1).first<{ reps: number }>();
+    expect(st).toBeNull();
+    const stats = await env.DB.prepare("SELECT stars, streak_days FROM user_stats WHERE user_id=908").first<any>();
+    expect(stats?.stars).toBe(0);
+    expect(stats?.streak_days).toBe(0);
+  });
 });
