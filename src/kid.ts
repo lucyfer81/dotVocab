@@ -39,7 +39,7 @@ kid.get("/users", async (c) => {
 });
 
 kid.post("/review", async (c) => {
-  const body = await c.req.json<{ user_id: number; word_id: number; correct: boolean }>();
+  const body = await c.req.json<{ user_id: number; word_id: number; correct: boolean; source?: string; answer?: string }>();
   if (!body.user_id || !body.word_id) return c.json({ error: "参数不完整" }, 400);
   const refs = await c.env.DB.prepare(
     "SELECT (SELECT COUNT(*) FROM users WHERE id=?1) AS u, (SELECT COUNT(*) FROM words WHERE id=?2) AS w"
@@ -57,6 +57,18 @@ kid.post("/review", async (c) => {
        due_at=excluded.due_at, lapses=excluded.lapses, last_reviewed_at=excluded.last_reviewed_at`
   ).bind(body.user_id, body.word_id, state.reps, state.interval_days, state.due_at, state.lapses, state.last_reviewed_at).run();
   const stats = await applyReviewStats(c.env.DB, body.user_id, now, body.correct);
+  // 错拼事件：append-only 日志，失败只记日志，绝不影响 /review 返回
+  if (body.correct === false) {
+    try {
+      const source = ["daily", "unit", "mistake"].includes(body.source ?? "") ? body.source! : null;
+      const answer = typeof body.answer === "string" ? body.answer.slice(0, 100) : null;
+      await c.env.DB.prepare(
+        "INSERT INTO wrong_answer_events (user_id, word_id, answer, source, created_at) VALUES (?,?,?,?,?)"
+      ).bind(body.user_id, body.word_id, answer, source, now).run();
+    } catch (e) {
+      console.log("wrong_answer_events insert failed", e);
+    }
+  }
   return c.json({ state, stars_awarded: body.correct ? 1 : 0, ...stats });
 });
 

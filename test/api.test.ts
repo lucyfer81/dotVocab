@@ -651,3 +651,65 @@ describe("admin: reset-progress", () => {
     expect(stats?.streak_days).toBe(0);
   });
 });
+
+describe("kid: wrong-answer events (mistake book logging)", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  async function countEvents() {
+    const r = await env.DB.prepare("SELECT COUNT(*) as n FROM wrong_answer_events").first<{ n: number }>();
+    return r?.n ?? 0;
+  }
+
+  it("correct=false records an event with answer + source; correct=true records nothing", async () => {
+    const before = await countEvents();
+    const wid = await seedWord("evt_wrong", "事甲");
+    const res = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, word_id: wid, correct: false, source: "daily", answer: "evt_rong" }),
+    });
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare(
+      "SELECT user_id, word_id, answer, source FROM wrong_answer_events ORDER BY id DESC LIMIT 1"
+    ).first<any>();
+    expect(row?.user_id).toBe(1);
+    expect(row?.word_id).toBe(wid);
+    expect(row?.answer).toBe("evt_rong");
+    expect(row?.source).toBe("daily");
+
+    const wid2 = await seedWord("evt_right", "事乙");
+    const res2 = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, word_id: wid2, correct: true, source: "daily", answer: "ignored" }),
+    });
+    expect(res2.status).toBe(200);
+    expect(await countEvents()).toBe(before + 1); // 只有答错那一条
+  });
+
+  it("legacy payload without source/answer stores NULLs", async () => {
+    const wid = await seedWord("evt_legacy", "事丙");
+    const res = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, word_id: wid, correct: false }),
+    });
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare(
+      "SELECT answer, source FROM wrong_answer_events ORDER BY id DESC LIMIT 1"
+    ).first<any>();
+    expect(row?.answer).toBeNull();
+    expect(row?.source).toBeNull();
+  });
+
+  it("invalid source stored as NULL; overlong answer truncated to 100 chars", async () => {
+    const wid = await seedWord("evt_edge", "事丁");
+    const long = "a".repeat(150);
+    await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ user_id: 1, word_id: wid, correct: false, source: "cheat", answer: long }),
+    });
+    const row = await env.DB.prepare(
+      "SELECT answer, source FROM wrong_answer_events ORDER BY id DESC LIMIT 1"
+    ).first<any>();
+    expect(row?.source).toBeNull();
+    expect((row?.answer as string)?.length).toBe(100);
+  });
+});

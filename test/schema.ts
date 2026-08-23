@@ -58,6 +58,17 @@ CREATE TABLE IF NOT EXISTS user_unit_word_seen (
   PRIMARY KEY (user_id, unit_id, word_id)
 );
 
+-- 错拼事件（append-only 日志，不参与错题本判定）
+CREATE TABLE IF NOT EXISTS wrong_answer_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  word_id INTEGER NOT NULL,
+  answer TEXT,
+  source TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wrong_events ON wrong_answer_events(user_id, word_id);
+
 -- 星星 / 连击
 CREATE TABLE IF NOT EXISTS user_stats (
   user_id INTEGER PRIMARY KEY,
