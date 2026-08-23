@@ -3,6 +3,7 @@ import { sfx } from "./sfx.js";
 import { showConfirm, showToast } from "./ui.js";
 import { createTtsPlayer } from "./tts-player.js";
 import { recordAnswer } from "./review-client.js";
+import { countGraduated } from "./mistake-helpers.js";
 
 const API = "/api";
 let currentUser;
@@ -94,11 +95,20 @@ async function showHome() {
       <div class="me">${escapeHtml(currentUser.avatar)} ${escapeHtml(currentUser.name)}</div></header>
     <div class="stats"><div class="stat">⭐ ${home.stars}</div><div class="stat">🔥 ${home.streak_days}</div><div class="stat">🛸 ${home.due_count}</div></div>
     <button class="big" id="review">🚀 今日任务 (${home.due_count})</button>
+    <button class="big" id="mistakes"></button>
     <h2>🪐 选择星球关卡</h2>
     <div class="units"></div>
   </section>`);
   wrap.querySelector("#switch").onclick = () => { currentUser = null; localStorage.removeItem("dotvocab_user"); showIdentity(); };
   wrap.querySelector("#review").onclick = () => startSession({ mode: "due" });
+  const mb = wrap.querySelector("#mistakes");
+  if (home.mistake_count > 0) {
+    mb.textContent = `📒 错题本 (${home.mistake_count})`;
+    mb.onclick = () => startSession({ mode: "mistake", title: "错题本" });
+  } else {
+    mb.textContent = "📒 错题本 · 太棒了，没有错题！";
+    mb.disabled = true;
+  }
   const ul = wrap.querySelector(".units");
   const grouped = {};
   home.units.forEach((u) => { (grouped[u.book] = grouped[u.book] || []).push(u); });
@@ -121,6 +131,7 @@ async function startSession({ mode, unit_id, title }) {
   let words;
   try {
     if (mode === "due") words = await api(`/session/due?user_id=${currentUser.id}`);
+    else if (mode === "mistake") words = await api(`/session/mistakes?user_id=${currentUser.id}`);
     else words = await api(`/session/unit`, { method: "POST", body: JSON.stringify({ user_id: currentUser.id, unit_id }) });
   } catch (e) {
     render($(`<section><h2>${escapeHtml(title || "今日任务")}</h2>
@@ -135,6 +146,8 @@ async function startSession({ mode, unit_id, title }) {
   const wrongCount = {}; // per-word wrong-attempt count, to cap retries
   const dropped = [];    // words that exhausted retries without a single success
   const stats = { done: 0, correct: 0 };
+  const source = mode === "due" ? "daily" : mode === "mistake" ? "mistake" : "unit";
+  const finalStates = {}; // wordId -> 最后一次成功 /review 返回的 state（毕业统计依据）
   let wrongTotal = 0;   // total wrong attempts (for progress)
   let streak = 0;       // 连击：连续答对数
   let aborted = false;  // kid quit mid-session: stop pending timers/advances
@@ -256,6 +269,9 @@ async function startSession({ mode, unit_id, title }) {
           wordId: w.id,
           correct,
           unitId: unit_id || null,
+          source,
+          answer: correct ? null : ans,
+          onResult: (r) => { if (r && r.state) finalStates[w.id] = r.state; },
           onError: () => showToast("😵 网络开小差了，刚才的进度可能没存上", "bad"),
         });
         if (aborted) return;
@@ -295,14 +311,17 @@ async function startSession({ mode, unit_id, title }) {
 
   function finish() {
     study = null; // 本局结束：学习界面随庆祝页整体替换，键盘可以收起
+    const graduated = countGraduated(words, finalStates);
     const practice = dropped.length
       ? `<div class="dropped"><p>💪 这几个词还有点难，点一点再听一遍：</p>
          <p class="dropped-words">${dropped.map((w) => `<button class="link wterm" data-term="${escapeHtml(w.term)}">🔊 ${escapeHtml(w.term)}</button>`).join("")}</p>
          <p><small>回基地后点「今日任务」可以马上再挑战它们！</small></p></div>`
       : "";
+    const gradLine = graduated > 0 ? `<p>🎓 错题毕业 x ${graduated}，太厉害了！</p>` : "";
     const card = $(`<section class="study">
       <h2>🛬 着陆成功！</h2>
       <p>完成 ${stats.done} 个任务，拼对 ${stats.correct} 个，获得 ⭐ x ${stats.correct}！</p>
+      ${gradLine}
       ${practice}
       <button class="big" id="back">返回基地</button>
     </section>`);

@@ -277,3 +277,5 @@ body.admin .link { color:#2563eb; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.big:disabled { opacity: .55; box-shadow: none; transform: none; cursor: default; }
