@@ -166,6 +166,12 @@ h1,h2,h3 { margin:0.4em 0; }
 }
 .spell-input:focus-within input { border-color: var(--pri); }
 
+/* 提交按钮与输入框同行（2026-08-23）：iPad 虚拟键盘弹出时按钮贴着输入框，
+   永远在键盘上方可见，不再被键盘盖住 */
+.spell-row { display:flex; gap:10px; align-items:stretch; margin:8px 0; }
+.spell-row .spell-input { flex:1; min-width:0; }
+.spell-row .big { width:auto; flex-shrink:0; margin:0; white-space:nowrap; }
+
 /* ---------- 家长后台：输入控件统一外观 + 词库行/行内编辑 ---------- */
 body.admin input, body.admin select, body.admin textarea {
   width: 100%; padding: 10px; font-size: 16px;
@@ -247,6 +253,24 @@ body.admin .link { color:#2563eb; }
 
   .admin-cols { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }
   .admin-right { max-height: 72vh; overflow: auto; }
+}
+
+/* ---------- 竖屏引导（2026-08-23）：仅主屏幕 PWA 横屏时全屏提示 ----------
+   学习流程是单列纵向布局，横屏下键盘弹出会盖住大半内容；iOS 无视 manifest 的
+   orientation 字段，故用 CSS 提示小朋友把设备转竖。浏览器标签页不受影响。 */
+.rotate-hint {
+  display:none; position:fixed; inset:0; z-index:100;
+  flex-direction:column; align-items:center; justify-content:center; gap:16px;
+  background:var(--bg-deep); color:var(--ink); text-align:center; padding:24px;
+}
+.rotate-hint .rotate-emoji { font-size:72px; line-height:1; animation: rotate-rocket 2.2s ease-in-out infinite; }
+.rotate-hint p { margin:0; font-size:22px; font-weight:700; }
+@keyframes rotate-rocket {
+  0%, 15% { transform: rotate(0deg); }
+  55%, 100% { transform: rotate(90deg); }
+}
+@media (orientation: landscape) and (display-mode: standalone) {
+  .rotate-hint { display:flex; }
 }
 
 /* ---------- 无障碍：用户偏好减动效时全部关闭 ---------- */

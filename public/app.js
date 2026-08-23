@@ -154,6 +154,59 @@ async function startSession({ mode, unit_id, title }) {
     }
   }
 
+  // ---------- 学习界面（整局只建一次，2026-08-23） ----------
+  // iPad 的键盘只对手势内的 focus() 弹出，且 DOM 重建会丢焦点、收键盘。
+  // 因此学习卡片整局持久，换词时原地更新；提交/发音按钮 pointerdown 不抢焦点，
+  // 输入框焦点全程不动 —— 虚拟键盘常驻，孩子换词无需再点输入框。
+  let study = null;
+  let actionHandler = null; // 提交 ↔ 下一题：Enter 和按钮共用同一个动作
+
+  function ensureStudy() {
+    if (study) return study;
+    const card = $(`<section class="study">
+      <header class="top"><h2>${escapeHtml(title || "今日任务")}</h2><button class="link" id="quit">✖️ 退出</button></header>
+      <div class="progress"><i></i></div>
+      <div class="wordcard">
+        <button class="tap-word" id="play" aria-label="听发音" style="margin-bottom:1rem;">
+          <span class="audio-hint" style="font-size:2rem;">🔊</span>
+          <small class="tap-hint">听发音</small>
+        </button>
+        <div class="meaning" id="meaning"></div>
+      </div>
+      <div class="spell-row">
+        <div class="spell-input">
+          <div class="spell-mirror" id="mirror"></div>
+          <input type="password" id="ans"
+                 autocorrect="off" autocapitalize="off" autocomplete="off"
+                 spellcheck="false" inputmode="text"
+                 aria-label="拼写英文单词" />
+        </div>
+        <button class="big" id="action">提交</button>
+      </div>
+      <div id="fb" class="fb"></div>
+    </section>`);
+    card.querySelector("#quit").onclick = quitSession;
+    // 点击不抢输入框焦点（preventDefault 只拦截聚焦，click 照常触发），键盘不落
+    const keepFocus = (e) => e.preventDefault();
+    card.querySelector("#play").addEventListener("pointerdown", keepFocus);
+    card.querySelector("#action").addEventListener("pointerdown", keepFocus);
+    card.querySelector("#action").onclick = () => actionHandler && actionHandler();
+    const inp = card.querySelector("#ans");
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") actionHandler && actionHandler(); });
+    const { render: spellRender } = makeSpellInput(inp, card.querySelector("#mirror"), "拼写英文单词");
+    render(card);
+    updateProgress();
+    study = {
+      inp, spellRender,
+      play: card.querySelector("#play"),
+      meaning: card.querySelector("#meaning"),
+      wordcard: card.querySelector(".wordcard"),
+      fb: card.querySelector("#fb"),
+      action: card.querySelector("#action"),
+    };
+    return study;
+  }
+
   await nextCard();
 
   async function nextCard() {
@@ -167,41 +220,21 @@ async function startSession({ mode, unit_id, title }) {
 
   function spellingCard(w) {
     return new Promise((resolve) => {
-      const card = $(`<section class="study">
-        <header class="top"><h2>${escapeHtml(title || "今日任务")}</h2><button class="link" id="quit">✖️ 退出</button></header>
-        <div class="progress"><i></i></div>
-        <div class="wordcard">
-          <button class="tap-word" id="play" aria-label="听发音" style="margin-bottom:1rem;">
-            <span class="audio-hint" style="font-size:2rem;">🔊</span>
-            <small class="tap-hint">听发音</small>
-          </button>
-          <div class="meaning">${w.pos ? `<span class="pos">${escapeHtml(w.pos)}.</span>` : ""}${escapeHtml(w.meaning_cn)}</div>
-        </div>
-        <div class="spell-input">
-          <div class="spell-mirror" id="mirror"></div>
-          <input type="password" id="ans"
-                 autocorrect="off" autocapitalize="off" autocomplete="off"
-                 spellcheck="false" inputmode="text"
-                 aria-label="拼写英文单词" />
-        </div>
-        <div id="fb" class="fb"></div>
-        <button class="big" id="submit">提交</button>
-      </section>`);
-      card.querySelector("#play").onclick = () => { speak(w.term); inp.focus(); };
-      card.querySelector("#quit").onclick = quitSession;
-      render(card);
-      const inp = card.querySelector("#ans");
-      const mirror = card.querySelector("#mirror");
-      makeSpellInput(inp, mirror, "拼写英文单词");
-      inp.focus();
+      const s = ensureStudy();
+      s.play.onclick = () => { speak(w.term); s.inp.focus(); };
+      s.meaning.innerHTML = `${w.pos ? `<span class="pos">${escapeHtml(w.pos)}.</span>` : ""}${escapeHtml(w.meaning_cn)}`;
+      s.fb.innerHTML = "";
+      s.action.textContent = "提交";
+      s.wordcard.classList.remove("launch", "shake"); // 上一个词的动效复位
+      s.inp.value = "";
+      s.spellRender();
+      s.inp.focus();
       let submitted = false; // guard against double Enter / double-tap
-      card.querySelector("#submit").onclick = submit;
-      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
 
       async function submit() {
         if (submitted) return; // ignore repeated submits (double Enter)
         submitted = true;
-        const ans = inp.value.trim().toLowerCase();
+        const ans = s.inp.value.trim().toLowerCase();
         const correct = ans === w.term.toLowerCase();
         try {
           await api("/review", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, word_id: w.id, correct }) });
@@ -210,19 +243,18 @@ async function startSession({ mode, unit_id, title }) {
         } catch (e) {
           // 网络失败不能把整局卡死：恢复按钮让孩子重试
           submitted = false;
-          card.querySelector("#fb").innerHTML = `<div><span class="bad">😵 网络开小差了：${escapeHtml(e.message)}，再试一次！</span></div>`;
-          inp.focus();
+          s.fb.innerHTML = `<div><span class="bad">😵 网络开小差了：${escapeHtml(e.message)}，再试一次！</span></div>`;
+          s.inp.focus();
           return;
         }
         if (aborted) return;
-        card.querySelector("#submit").onclick = null;
-        const fb = card.querySelector("#fb");
+        actionHandler = null; // 反馈期间按钮/Enter 不再响应
         if (correct) {
           stats.done++; stats.correct++;
           streak++;
           const combo = streak >= 3 ? `<span class="combo">🔥 连击 x${streak}</span>` : "";
-          fb.innerHTML = `<div><span class="ok">✅ 对！⭐</span>${combo}</div>`;
-          card.querySelector(".wordcard").classList.add("launch");
+          s.fb.innerHTML = `<div><span class="ok">✅ 对！⭐</span>${combo}</div>`;
+          s.wordcard.classList.add("launch");
           sfx.correct();
           speak(w.term);
           setTimeout(() => { if (!aborted) resolve(nextCard()); }, 750);
@@ -231,22 +263,22 @@ async function startSession({ mode, unit_id, title }) {
           wrongCount[w.id] = (wrongCount[w.id] || 0) + 1;
           wrongTotal++;
           const cmp = diffHtml(w.term.toLowerCase(), ans);
-          fb.innerHTML = `<div><span class="bad">🚀 差一点点！正确：<span class="cmp">${cmp}</span></span></div>`;
-          card.querySelector(".wordcard").classList.add("shake");
+          s.fb.innerHTML = `<div><span class="bad">🚀 差一点点！正确：<span class="cmp">${cmp}</span></span></div>`;
+          s.wordcard.classList.add("shake");
           sfx.wrong();
           speak(w.term);
           if (wrongCount[w.id] < 3) retry.push(w); // cap so kids can't soft-lock
           else dropped.push(w);
-          const next = $(`<button class="big" id="next">下一题</button>`);
-          card.querySelector("#submit").replaceWith(next);
-          next.onclick = () => { if (!aborted) resolve(nextCard()); };
-          next.focus(); // focused button answers Enter/Space — same muscle memory as submitting
+          s.action.textContent = "下一题";
+          actionHandler = () => { if (!aborted) resolve(nextCard()); }; // Enter 或点击都走这里
         }
       }
+      actionHandler = submit;
     });
   }
 
   function finish() {
+    study = null; // 本局结束：学习界面随庆祝页整体替换，键盘可以收起
     const practice = dropped.length
       ? `<div class="dropped"><p>💪 这几个词还有点难，点一点再听一遍：</p>
          <p class="dropped-words">${dropped.map((w) => `<button class="link wterm" data-term="${escapeHtml(w.term)}">🔊 ${escapeHtml(w.term)}</button>`).join("")}</p>
