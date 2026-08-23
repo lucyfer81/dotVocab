@@ -231,9 +231,6 @@ async function startSession({ mode, unit_id, title }) {
         submitted = true;
         const ans = s.inp.value.trim().toLowerCase();
         const correct = ans === w.term.toLowerCase();
-        // 提交即起播（还在手势调用栈内，为音频网络加载抢时间）；
-        // 该词无论对错都要读，且必须赶在下一个单词出现前播完
-        const spoken = speak(w.term);
         try {
           await api("/review", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, word_id: w.id, correct }) });
           // 单元进度只在答对时推进：答错的词不算"学会"，下次学新词时还会出现
@@ -247,6 +244,9 @@ async function startSession({ mode, unit_id, title }) {
         }
         if (aborted) return;
         actionHandler = null; // 反馈期间按钮/Enter 不再响应
+        // 先判定反馈（✅/🚀 + 音效），再读音；unlock 已解锁音频元素，
+        // await 之后起播不受自动播放限制，且仍赶在下一个单词出现前播完
+        const spoken = speak(w.term);
         if (correct) {
           stats.done++; stats.correct++;
           streak++;
