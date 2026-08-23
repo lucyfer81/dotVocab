@@ -7,14 +7,14 @@ function makePost(opts: { failReview?: boolean; failCover?: boolean } = {}) {
   const calls: { path: string; body: Record<string, unknown>; at: number }[] = [];
   const gates: { resolve: () => void }[] = [];
   let n = 0;
-  const post = (path: string, body: Record<string, unknown>) => {
+  const post = (path: string, body: Record<string, unknown>): Promise<any> => {
     const seq = ++n;
     calls.push({ path, body, at: seq });
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<any>((resolve, reject) => {
       gates.push({
         resolve: () => (path === "/review" && opts.failReview) || (path === "/cover" && opts.failCover)
           ? reject(new Error("net"))
-          : resolve(),
+          : resolve(path === "/review" ? { state: { reps: 1 } } : undefined),
       });
     });
   };
@@ -79,5 +79,37 @@ describe("recordAnswer", () => {
     f.releaseAll();
     await new Promise((r) => setTimeout(r, 0));
     expect(errors).toBe(0);
+  });
+});
+
+describe("recordAnswer: source/answer passthrough + onResult", () => {
+  it("sends source and answer (wrong) in /review body; correct sends answer null", () => {
+    const f = makePost();
+    recordAnswer({ ...base, correct: false, source: "mistake", answer: "aple", post: f.post, onError: () => {} });
+    f.releaseAll();
+    expect(f.calls[0].body).toEqual({
+      user_id: 7, word_id: 42, correct: false, source: "mistake", answer: "aple",
+    });
+    const ok = makePost();
+    recordAnswer({ ...base, source: "daily", answer: "whatever", post: ok.post, onError: () => {} });
+    ok.releaseAll();
+    expect(ok.calls[0].body.answer).toBeNull(); // 答对不带拼写
+  });
+
+  it("onResult receives /review JSON on success, null on /review failure", async () => {
+    const f = makePost();
+    let got: unknown = "unset";
+    recordAnswer({ ...base, post: f.post, onError: () => {}, onResult: (r) => { got = r; } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(got).toBe("unset"); // 尚未 release, 回调不该发生(非阻塞)
+    f.releaseAll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(got).toEqual({ state: { reps: 1 } });
+    const bad = makePost({ failReview: true });
+    let gotNull: unknown = "unset";
+    recordAnswer({ ...base, post: bad.post, onError: () => {}, onResult: (r) => { gotNull = r; } });
+    bad.releaseAll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(gotNull).toBeNull(); // 失败 → null
   });
 });
