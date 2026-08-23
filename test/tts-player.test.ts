@@ -23,9 +23,10 @@ function makeFakeAudio(opts: { playResult?: Promise<void> | "reject" } = {}): Fa
     paused: false,
     play() {
       audio.playCalls++;
-      return opts.playResult === "reject"
-        ? Promise.reject(new Error("not allowed"))
-        : Promise.resolve();
+      if (opts.playResult === "reject") return Promise.reject(new Error("not allowed"));
+      // Promise 型结果只作用于第一次 play()：模拟"第一次加载被中止拒绝，后续播放成功"
+      if (opts.playResult instanceof Promise && audio.playCalls === 1) return opts.playResult;
+      return Promise.resolve();
     },
     pause() { audio.paused = true; },
     addEventListener(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); },
@@ -65,6 +66,8 @@ function makeEnv(overrides: {
   audio?: FakeAudio;
   synth?: ReturnType<typeof makeFakeSynth> | null;
   timers?: ReturnType<typeof makeFakeTimers>;
+  fetchImpl?: (url: string) => Promise<unknown>;
+  createObjectURL?: (b: unknown) => string;
 } = {}) {
   const audio = overrides.audio || makeFakeAudio();
   const synth = overrides.synth === undefined ? makeFakeSynth() : overrides.synth;
@@ -75,6 +78,8 @@ function makeEnv(overrides: {
     newUtterance: (text: string): FakeUtterance => ({ text, onend: null, onerror: null }),
     setTimeout: timers.set.bind(timers),
     clearTimeout: timers.clear.bind(timers),
+    fetchImpl: overrides.fetchImpl,
+    createObjectURL: overrides.createObjectURL,
   });
   return { player, audio, synth, timers };
 }
@@ -174,6 +179,112 @@ describe("tts player", () => {
   it("speak() resolves (not rejects) even when everything fails", async () => {
     const { player } = makeEnv({ synth: null, audio: makeFakeAudio({ playResult: "reject" }) });
     await expect(player.speak("cat")).resolves.toBeUndefined();
+  });
+
+  // ---------- BUG A：被打断的旧调用不得破坏新调用 ----------
+  it("an interrupted speak's late play-rejection must not stop or fallback the newer speak", async () => {
+    let rejectFirst!: (e: Error) => void;
+    const audio = makeFakeAudio({ playResult: new Promise<void>((_, rej) => { rejectFirst = rej; }) });
+    const { player, synth } = makeEnv({ audio });
+    const first = player.speak("cat");
+    const second = player.speak("dog"); // 打断第一个；此时第一个的 play() 仍悬挂
+    rejectFirst(new Error("aborted load")); // 旧 play() 迟到拒绝
+    await first;
+    await new Promise((r) => setTimeout(r, 0)); // 拒绝经微任务传播到 catch
+    expect(synth!.utterances.length).toBe(0); // 不应为新调用触发机械音回退
+    expect(audio.paused).toBe(false);          // 不应暂停新调用的音频
+    audio.dispatch("ended");
+    await second;
+  });
+
+  it("a stale timeout from an interrupted speak must not stop the newer playback", async () => {
+    const { player, audio, timers } = makeEnv();
+    const first = player.speak("cat"); // timer id 1
+    const second = player.speak("dog"); // timer id 2（打断第一个）
+    timers.fire(1); // 旧调用的 4s 兜底超时迟到触发
+    await first;
+    expect(audio.paused).toBe(false); // 不得殃及新播放
+    timers.fire(2);
+    await second;
+  });
+
+  it("a stale utterance end must not settle the newer speak early", async () => {
+    const { player, audio, synth } = makeEnv({ audio: makeFakeAudio({ playResult: "reject" }) });
+    const first = player.speak("cat");
+    await new Promise((r) => setTimeout(r, 0)); // cat 回退到机械音
+    const second = player.speak("dog"); // 打断 cat（真实浏览器里 cancel 后 utterance 会补发 end）
+    let settled = false;
+    second.then(() => { settled = true; });
+    synth!.utterances[0].onend!(); // cat 的 utterance 迟到结束
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(false); // dog 不应被提前放行
+    audio.dispatch("ended");
+    await second;
+    await first;
+  });
+
+  // ---------- prefetch：预热 HTTP 缓存 ----------
+  describe("prefetch", () => {
+    it("fetches each term's tts url once with concurrency bound, swallowing errors", async () => {
+      const calls: string[] = [];
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      let active = 0;
+      let maxActive = 0;
+      const fetchImpl = async (url: string) => {
+        calls.push(url);
+        active++; maxActive = Math.max(maxActive, active);
+        await gate;
+        active--;
+        if (url.includes("boom")) throw new Error("net");
+        return { ok: true };
+      };
+      const { player } = makeEnv({ fetchImpl });
+      const done = player.prefetch(["cat", "dog", "boom", "cat", "pig", "ox", "hen"]);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(calls.length).toBe(3); // 并发上限 3，其余排队
+      release();
+      await done;
+      expect(calls.length).toBe(6); // 去重后 6 个唯一词
+      expect(maxActive).toBeLessThanOrEqual(3);
+      expect(calls.every((u) => u.startsWith("/api/tts?term=") && u.endsWith("lang=en-US"))).toBe(true);
+      expect(calls).toContain("/api/tts?term=boom&lang=en-US");
+    });
+
+    it("skips terms already prefetched by earlier calls", async () => {
+      const calls: string[] = [];
+      const fetchImpl = async (url: string) => { calls.push(url); return { ok: true }; };
+      const { player } = makeEnv({ fetchImpl });
+      await player.prefetch(["cat", "dog"]);
+      await player.prefetch(["dog", "hen"]);
+      expect(calls.sort()).toEqual(["/api/tts?term=cat&lang=en-US", "/api/tts?term=dog&lang=en-US", "/api/tts?term=hen&lang=en-US"]);
+    });
+
+    it("stores successful prefetches as blob urls and speak() plays them offline (no network url)", async () => {
+      const fetchImpl = async () => ({ ok: true, blob: async () => "FAKEBLOB" });
+      const { player, audio } = makeEnv({
+        fetchImpl,
+        createObjectURL: (b: unknown) => `blob:${b}`,
+      });
+      await player.prefetch(["cat"]);
+      const p = player.speak("cat");
+      expect(audio.src).toBe("blob:FAKEBLOB"); // 命中预取：不再走 /api/tts 网络
+      audio.dispatch("ended");
+      await p;
+    });
+
+    it("failed prefetch falls back to the network url at speak time", async () => {
+      const fetchImpl = async () => ({ ok: false }); // 502 等失败
+      const { player, audio } = makeEnv({
+        fetchImpl,
+        createObjectURL: (b: unknown) => `blob:${b}`,
+      });
+      await player.prefetch(["cat"]);
+      const p = player.speak("cat");
+      expect(audio.src).toBe("/api/tts?term=cat&lang=en-US");
+      audio.dispatch("ended");
+      await p;
+    });
   });
 
   // ---------- unlock：进入学习时借手势解锁自动播放 ----------

@@ -31,6 +31,20 @@ const tts = createTtsPlayer();
 function speak(text) { return tts.speak(text); }
 function stopSpeak() { tts.stop(); }
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+// 等 launch 动画放完（animationend），800ms 兜底防动画被中断/关闭时卡住流程
+function waitForLaunch(el) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener("animationend", finish);
+      resolve();
+    };
+    el.addEventListener("animationend", finish);
+    setTimeout(finish, 800);
+  });
+}
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -115,6 +129,7 @@ async function startSession({ mode, unit_id, title }) {
     return;
   }
   const queue = words.slice();
+  tts.prefetch(queue.map((w) => w.term)); // 预热音频缓存：单词出现时读音秒起，不等冷合成（失败静默）
   const retry = [];
   const wrongCount = {}; // per-word wrong-attempt count, to cap retries
   const dropped = [];    // words that exhausted retries without a single success
@@ -244,18 +259,19 @@ async function startSession({ mode, unit_id, title }) {
         }
         if (aborted) return;
         actionHandler = null; // 反馈期间按钮/Enter 不再响应
-        // 先判定反馈（✅/🚀 + 音效），再读音；unlock 已解锁音频元素，
-        // await 之后起播不受自动播放限制，且仍赶在下一个单词出现前播完
-        const spoken = speak(w.term);
         if (correct) {
           stats.done++; stats.correct++;
           streak++;
           const combo = streak >= 3 ? `<span class="combo">🔥 连击 x${streak}</span>` : "";
           s.fb.innerHTML = `<div><span class="ok">✅ 对！⭐</span>${combo}</div>`;
-          s.wordcard.classList.add("launch");
           sfx.correct();
-          // 反馈至少展示 750ms，且读音播完（4s 兜底）才切下一个词——杜绝"串词"
-          await Promise.all([delay(750), spoken]);
+          // 时序：判定先出 → 读音在静态卡片上播完（不与动画重叠，避免 iOS 机械音
+          // 阻塞主线程冻住动画）→ launch 动画送走卡片 → 动画放完才出现下一个词
+          const spoken = speak(w.term);
+          await Promise.all([delay(500), spoken]);
+          if (aborted) return;
+          s.wordcard.classList.add("launch");
+          await waitForLaunch(s.wordcard);
           if (!aborted) resolve(nextCard());
         } else {
           streak = 0;
@@ -265,6 +281,7 @@ async function startSession({ mode, unit_id, title }) {
           s.fb.innerHTML = `<div><span class="bad">🚀 差一点点！正确：<span class="cmp">${cmp}</span></span></div>`;
           s.wordcard.classList.add("shake");
           sfx.wrong();
+          speak(w.term); // 与阅读正确拼写并行；点「下一题」立即打断残留读音
           if (wrongCount[w.id] < 3) retry.push(w); // cap so kids can't soft-lock
           else dropped.push(w);
           s.action.textContent = "下一题";
