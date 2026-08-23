@@ -118,6 +118,9 @@ admin.post("/reset-progress", async (c) => {
       `DELETE FROM user_word_state WHERE user_id IN (${placeholders})${stateWordFilter}`
     ).bind(...user_ids, ...stateExtraArgs));
     stmts.push(db.prepare(
+      `DELETE FROM wrong_answer_events WHERE user_id IN (${placeholders})${stateWordFilter}`
+    ).bind(...user_ids, ...stateExtraArgs));
+    stmts.push(db.prepare(
       `UPDATE user_stats SET stars=0, streak_days=0, last_play_date=NULL WHERE user_id IN (${placeholders})`
     ).bind(...user_ids));
   }
@@ -126,7 +129,8 @@ admin.post("/reset-progress", async (c) => {
     ok: true,
     deleted: results[0].meta.changes ?? 0,
     state_deleted: deep ? (results[1].meta.changes ?? 0) : 0,
-    stats_reset: deep ? (results[2].meta.changes ?? 0) : 0,
+    events_deleted: deep ? (results[2].meta.changes ?? 0) : 0,
+    stats_reset: deep ? (results[3].meta.changes ?? 0) : 0,
   });
 });
 
@@ -155,6 +159,7 @@ admin.delete("/words/:id", async (c) => {
     db.prepare("DELETE FROM user_unit_word_seen WHERE word_id=?").bind(id),
     db.prepare("DELETE FROM user_word_state WHERE word_id=?").bind(id),
     db.prepare("DELETE FROM unit_words WHERE word_id=?").bind(id),
+    db.prepare("DELETE FROM wrong_answer_events WHERE word_id=?").bind(id),
     db.prepare("DELETE FROM words WHERE id=?").bind(id),
   ]);
   return c.json({ ok: true });

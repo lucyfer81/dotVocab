@@ -757,3 +757,47 @@ describe("kid: mistake book derived queue + home count", () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe("admin: wrong_answer_events cascade cleanup", () => {
+  beforeAll(async () => { await applySchema(); });
+  const h = { "content-type": "application/json" };
+
+  async function seedEvent(userId: number, wordId: number) {
+    await env.DB.prepare(
+      "INSERT INTO wrong_answer_events (user_id, word_id, answer, source, created_at) VALUES (?,?,?,NULL,1)"
+    ).bind(userId, wordId, "x").run();
+  }
+
+  it("deleting a word removes its events too", async () => {
+    const wid = await seedWord("cascade_evt", "级事");
+    await seedEvent(1, wid);
+    const res = await SELF.fetch(`https://example.com/api/admin/words/${wid}`, {
+      method: "DELETE", headers: { "x-admin-token": adminToken },
+    });
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare("SELECT id FROM wrong_answer_events WHERE word_id=?").bind(wid).first();
+    expect(row).toBeNull();
+  });
+
+  it("deep unit-scoped reset deletes events in scope and reports events_deleted", async () => {
+    const ua = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('级联书','CU1') RETURNING id").first<{ id: number }>();
+    const ub = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('级联书','CU2') RETURNING id").first<{ id: number }>();
+    const w1 = await seedWord("cascade_u1", "级甲");
+    const w2 = await seedWord("cascade_u2", "级乙");
+    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?)").bind(ua!.id, w1, ub!.id, w2).run();
+    await seedEvent(920, w1);
+    await seedEvent(920, w2);
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { ...h, "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "unit", unit_id: ua!.id, user_ids: [920], deep: true }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.events_deleted).toBe(1);
+    const left = await env.DB.prepare(
+      "SELECT word_id FROM wrong_answer_events WHERE user_id=920"
+    ).all<{ word_id: number }>();
+    expect(left.results.map((r) => r.word_id)).toEqual([w2]); // 范围外保留
+  });
+});
