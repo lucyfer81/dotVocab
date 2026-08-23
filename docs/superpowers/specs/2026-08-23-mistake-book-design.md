@@ -114,6 +114,12 @@ ORDER BY RANDOM()
 
 响应新增 `mistake_count`：上述在册条件 `COUNT(*)`。
 
+### 管理端级联清理（src/admin.ts，与既有孤儿清理惯例一致）
+
+- `DELETE /api/admin/words/:id`：batch 中追加删除该词的 `wrong_answer_events`。
+- `POST /api/admin/reset-progress`（`deep: true`）：按与 `user_word_state` 相同的
+  范围过滤追加删除 `wrong_answer_events`；响应新增 `events_deleted` 计数。
+
 ## 7. 前端（public/app.js + review-client.js）
 
 ### 首页
@@ -166,6 +172,7 @@ opts 新增 `source`、`answer`，透传进 `/review` 请求体。乐观上报�
 5. 空本 → `/session/mistakes` 返回 `[]`；`/home` 的 `mistake_count` 各场景计数正确。
 6. 旧客户端 payload（无 source/answer）→ /review 正常，事件行对应列 NULL。
 7. `answer` 超长截断；非法 `source` 存 NULL。
+8. 删词级联清掉 `wrong_answer_events`；deep 重置按范围清事件并返回 `events_deleted`。
 
 ### review-client.test.ts 扩展
 
