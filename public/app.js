@@ -1,6 +1,7 @@
 import { shouldRejectInputType, sanitizeValue, renderMirrorHtml, diffHtml } from "./spell-helpers.js";
 import { sfx } from "./sfx.js";
 import { showConfirm } from "./ui.js";
+import { createTtsPlayer } from "./tts-player.js";
 
 const API = "/api";
 let currentUser;
@@ -25,20 +26,11 @@ function render(node) {
   app.innerHTML = "";
   app.appendChild(node);
 }
-let ttsAudio;
-function speak(text) {
-  const url = `/api/tts?term=${encodeURIComponent(text)}&lang=en-US`;
-  if (!ttsAudio) ttsAudio = new Audio();
-  ttsAudio.src = url;
-  ttsAudio.play().catch(() => {
-    // 合成失败 / 网络失败：回退浏览器机械音，保证按钮永不哑
-    if ("speechSynthesis" in window) {
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "en-US";
-      speechSynthesis.speak(u);
-    }
-  });
-}
+// ---------- 发音：单词出现自动读一次 + 🔊 按需读 + 提交后读音赶在下个词前播完 ----------
+const tts = createTtsPlayer();
+function speak(text) { return tts.speak(text); }
+function stopSpeak() { tts.stop(); }
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -110,6 +102,7 @@ async function showHome() {
 
 // ---------- session ----------
 async function startSession({ mode, unit_id, title }) {
+  tts.unlock(); // 还在手势调用栈内：借一次静音播放换取整局自动读音权限
   let words;
   try {
     if (mode === "due") words = await api(`/session/due?user_id=${currentUser.id}`);
@@ -140,6 +133,7 @@ async function startSession({ mode, unit_id, title }) {
     });
     if (!ok) return;
     aborted = true;
+    stopSpeak(); // 半路退出：立刻安静，不带声音回基地
     showHome();
   }
 
@@ -229,6 +223,7 @@ async function startSession({ mode, unit_id, title }) {
       s.inp.value = "";
       s.spellRender();
       s.inp.focus();
+      speak(w.term); // 单词出现自动读一次（被拦就静默，🔊 按钮仍可按需读）
       let submitted = false; // guard against double Enter / double-tap
 
       async function submit() {
@@ -236,6 +231,9 @@ async function startSession({ mode, unit_id, title }) {
         submitted = true;
         const ans = s.inp.value.trim().toLowerCase();
         const correct = ans === w.term.toLowerCase();
+        // 提交即起播（还在手势调用栈内，为音频网络加载抢时间）；
+        // 该词无论对错都要读，且必须赶在下一个单词出现前播完
+        const spoken = speak(w.term);
         try {
           await api("/review", { method: "POST", body: JSON.stringify({ user_id: currentUser.id, word_id: w.id, correct }) });
           // 单元进度只在答对时推进：答错的词不算"学会"，下次学新词时还会出现
@@ -256,8 +254,9 @@ async function startSession({ mode, unit_id, title }) {
           s.fb.innerHTML = `<div><span class="ok">✅ 对！⭐</span>${combo}</div>`;
           s.wordcard.classList.add("launch");
           sfx.correct();
-          speak(w.term);
-          setTimeout(() => { if (!aborted) resolve(nextCard()); }, 750);
+          // 反馈至少展示 750ms，且读音播完（4s 兜底）才切下一个词——杜绝"串词"
+          await Promise.all([delay(750), spoken]);
+          if (!aborted) resolve(nextCard());
         } else {
           streak = 0;
           wrongCount[w.id] = (wrongCount[w.id] || 0) + 1;
@@ -266,11 +265,10 @@ async function startSession({ mode, unit_id, title }) {
           s.fb.innerHTML = `<div><span class="bad">🚀 差一点点！正确：<span class="cmp">${cmp}</span></span></div>`;
           s.wordcard.classList.add("shake");
           sfx.wrong();
-          speak(w.term);
           if (wrongCount[w.id] < 3) retry.push(w); // cap so kids can't soft-lock
           else dropped.push(w);
           s.action.textContent = "下一题";
-          actionHandler = () => { if (!aborted) resolve(nextCard()); }; // Enter 或点击都走这里
+          actionHandler = () => { if (!aborted) { stopSpeak(); resolve(nextCard()); } }; // 孩子操作优先：打断残留读音立即切词
         }
       }
       actionHandler = submit;
