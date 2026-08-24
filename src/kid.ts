@@ -111,6 +111,8 @@ kid.post("/cover", async (c) => {
 kid.get("/home", async (c) => {
   const userId = Number(c.req.query("user_id"));
   if (!userId) return c.json({ error: "缺少 user_id" }, 400);
+  const user = await c.env.DB.prepare("SELECT id FROM users WHERE id=?").bind(userId).first();
+  if (!user) return c.json({ error: "用户不存在" }, 404);
   const now = Date.now();
   const stats = await c.env.DB.prepare(
     "SELECT stars, streak_days FROM user_stats WHERE user_id=?"

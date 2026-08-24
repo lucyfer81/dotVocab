@@ -963,3 +963,17 @@ describe("api 404 fallback (B4)", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("hardening (B9/B14a)", () => {
+  beforeAll(async () => { await applySchema(); });
+  it("GET /api/home returns 404 for unknown user", async () => {
+    const res = await SELF.fetch("https://example.com/api/home?user_id=424242");
+    expect(res.status).toBe(404);
+  });
+  it("admin auth still accepts correct token and rejects wrong one", async () => {
+    const ok = await SELF.fetch("https://example.com/api/admin/units", { headers: { "x-admin-token": adminToken } });
+    expect(ok.status).toBe(200);
+    const bad = await SELF.fetch("https://example.com/api/admin/units", { headers: { "x-admin-token": "x".repeat(64) } });
+    expect(bad.status).toBe(401);
+  });
+});
