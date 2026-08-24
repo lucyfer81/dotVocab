@@ -977,3 +977,38 @@ describe("hardening (B9/B14a)", () => {
     expect(bad.status).toBe(401);
   });
 });
+
+describe("review conflict-path interval pinning", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("已存在状态的 correct 复习按 INTERVAL_CASE 阶梯返回 interval_days", async () => {
+    // 钉住 kid.ts 里 INTERVAL_CASE 与 srs.ts 的一致性：
+    // idx = max(0, min(reps+1, 7) - (lapses>0 ? 1 : 0)) 索引 INTERVALS_DAYS = [0,1,2,4,8,16,30,60]。
+    // 期望值刻意硬编码：若有人改了 INTERVALS_DAYS/步退逻辑，本测试必须失败，
+    // 逼其同步更新 kid.ts 的 SQL 阶梯，而不是让 SQL 悄悄偏离。
+    const cases = [
+      { term: "pinw1", reps: 2, lapses: 0, expected: 4 },
+      { term: "pinw2", reps: 2, lapses: 1, expected: 2 },  // 步退一档
+      { term: "pinw3", reps: 8, lapses: 0, expected: 60 }, // 封顶 7
+      { term: "pinw4", reps: 8, lapses: 2, expected: 30 },
+    ];
+    for (const c of cases) {
+      const wid = await seedWord(c.term);
+      await env.DB.prepare(
+        "INSERT OR REPLACE INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses, last_reviewed_at) VALUES (?,?,?,?,?,?,?)"
+      ).bind(1, wid, c.reps, 1, 1, c.lapses, 1).run();
+      const nowBefore = Date.now();
+      const res = await SELF.fetch("https://example.com/api/review", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: 1, word_id: wid, correct: true }),
+      });
+      const data: any = await json(res);
+      expect(res.status).toBe(200);
+      expect(data.state.reps).toBe(c.reps + 1);
+      expect(data.state.interval_days).toBe(c.expected);
+      if (c.term === "pinw1") {
+        expect(data.state.due_at).toBeGreaterThan(nowBefore); // interval>0 => 未来到期
+      }
+    }
+  });
+});
