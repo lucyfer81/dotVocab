@@ -5,6 +5,12 @@ import { updateSrs, emptyState, type SrsState } from "./srs";
 const kid = new Hono<{ Bindings: Env }>();
 const TIME_ZONE = "Asia/Shanghai";
 
+// INTERVALS_DAYS = [0,1,2,4,8,16,30,60] 的 SQL 等价物。
+// idx = max(0, min(旧reps+1, 7) - (旧lapses>0 ? 1 : 0))；与 updateSrs 的正确分支一致。
+const INTERVAL_CASE = `CASE MAX(MIN(user_word_state.reps + 1, 7) - (user_word_state.lapses > 0), 0)
+  WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 2 WHEN 3 THEN 4
+  WHEN 4 THEN 8 WHEN 5 THEN 16 WHEN 6 THEN 30 ELSE 60 END`;
+
 function dayStr(ms: number): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(new Date(ms));
 }
@@ -52,16 +58,25 @@ kid.post("/review", async (c) => {
   ).bind(body.user_id, body.word_id).first<{ u: number; w: number }>();
   if (!refs?.u || !refs?.w) return c.json({ error: "用户或单词不存在" }, 404);
   const now = Date.now();
-  const prev = await c.env.DB.prepare(
-    "SELECT reps, interval_days, due_at, lapses, last_reviewed_at FROM user_word_state WHERE user_id=? AND word_id=?"
-  ).bind(body.user_id, body.word_id).first<SrsState>();
-  const state = updateSrs(prev ?? emptyState(now), body.correct, now);
-  await c.env.DB.prepare(
+  // 首插路径的值用纯函数算（空状态起转）；冲突路径的转移在 SQL 内原子完成，
+  // 杜绝读-改-写在并发（同账号双设备/双开标签）下丢更新。RETURNING 行即权威状态。
+  const first = updateSrs(emptyState(now), body.correct, now);
+  const row = await c.env.DB.prepare(
     `INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses, last_reviewed_at)
-     VALUES (?,?,?,?,?,?,?)
-     ON CONFLICT(user_id, word_id) DO UPDATE SET reps=excluded.reps, interval_days=excluded.interval_days,
-       due_at=excluded.due_at, lapses=excluded.lapses, last_reviewed_at=excluded.last_reviewed_at`
-  ).bind(body.user_id, body.word_id, state.reps, state.interval_days, state.due_at, state.lapses, state.last_reviewed_at).run();
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+     ON CONFLICT(user_id, word_id) DO UPDATE SET
+       reps = CASE WHEN ?8 THEN user_word_state.reps + 1 ELSE 0 END,
+       interval_days = CASE WHEN ?8 THEN ${INTERVAL_CASE} ELSE 0 END,
+       due_at = CASE WHEN ?8 THEN ?9 + (${INTERVAL_CASE}) * 86400000 ELSE ?9 END,
+       lapses = CASE WHEN ?8 THEN user_word_state.lapses ELSE user_word_state.lapses + 1 END,
+       last_reviewed_at = ?9
+     RETURNING reps, interval_days, due_at, lapses, last_reviewed_at`
+  ).bind(
+    body.user_id, body.word_id,
+    first.reps, first.interval_days, first.due_at, first.lapses, first.last_reviewed_at,
+    body.correct ? 1 : 0, now
+  ).first<SrsState>();
+  const state = row ?? first;
   const stats = await applyReviewStats(c.env.DB, body.user_id, now, body.correct);
   // 错拼事件：append-only 日志，失败只记日志，绝不影响 /review 返回
   if (body.correct === false) {

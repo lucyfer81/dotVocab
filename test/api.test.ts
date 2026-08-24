@@ -826,3 +826,31 @@ describe("admin: wrong_answer_events cascade cleanup", () => {
     expect(left.results.map((r) => r.word_id)).toEqual([w2]); // 范围外保留
   });
 });
+
+describe("kid: SRS state updates are atomic (B1 concurrency)", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("concurrent correct reviews never lose SRS updates (B1)", async () => {
+    const wid = await seedWord("raceword", "竞速");
+    const starsBefore = (await env.DB.prepare(
+      "SELECT stars FROM user_stats WHERE user_id=2"
+    ).first<{ stars: number }>())?.stars ?? 0;
+
+    const responses = await Promise.all(Array.from({ length: 6 }, () =>
+      SELF.fetch("https://example.com/api/review", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: 2, word_id: wid, correct: true }),
+      })));
+    expect(responses.every((r) => r.status === 200)).toBe(true);
+
+    const row = await env.DB.prepare(
+      "SELECT reps FROM user_word_state WHERE user_id=2 AND word_id=?"
+    ).bind(wid).first<{ reps: number }>();
+    expect(row?.reps).toBe(6); // 修复前并发下 reps < 6 而 stars = +6
+
+    const starsAfter = (await env.DB.prepare(
+      "SELECT stars FROM user_stats WHERE user_id=2"
+    ).first<{ stars: number }>())?.stars ?? 0;
+    expect(starsAfter - starsBefore).toBe(6);
+  });
+});
