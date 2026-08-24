@@ -47,4 +47,30 @@ describe("parseWordCsv", () => {
     expect(rows[0].term).toBe("apple");
     expect(rows[0].meaning_cn).toBe("苹果");
   });
+
+  it("parses quoted fields containing commas (B3)", () => {
+    const { rows, errors } = parseWordCsv('orange,"橙子, 柑橘",n,I like orange juice.,我喜欢橙汁。');
+    expect(errors).toEqual([]);
+    expect(rows[0]).toEqual({
+      term: "orange", meaning_cn: "橙子, 柑橘", pos: "n",
+      example_en: "I like orange juice.", example_cn: "我喜欢橙汁。",
+    });
+  });
+
+  it("parses escaped double quotes inside quoted fields", () => {
+    const { rows } = parseWordCsv('word,"He said ""hi""",n');
+    expect(rows[0].meaning_cn).toBe('He said "hi"');
+  });
+
+  it("delimiter sniff ignores tabs inside quotes", () => {
+    const { rows, errors } = parseWordCsv('a,"b\tc",d');
+    expect(errors).toEqual([]);
+    expect(rows[0]).toEqual({ term: "a", meaning_cn: "b\tc", pos: "d", example_en: null, example_cn: null });
+  });
+
+  it("tab-delimited lines still work with quoted commas", () => {
+    const { rows, errors } = parseWordCsv('dog\t"狗, 犬"\tn');
+    expect(errors).toEqual([]);
+    expect(rows[0]).toEqual({ term: "dog", meaning_cn: "狗, 犬", pos: "n", example_en: null, example_cn: null });
+  });
 });
