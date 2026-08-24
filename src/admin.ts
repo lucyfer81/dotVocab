@@ -36,7 +36,12 @@ admin.post("/units", async (c) => {
 admin.post("/import", async (c) => {
   const body = await parseJsonBody<{ unit_id: number; csv: string }>(c);
   if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
-  if (!body.unit_id || !body.csv) return c.json({ error: "缺少 unit_id/csv" }, 400);
+  if (!Number.isInteger(body.unit_id) || body.unit_id <= 0 || typeof body.csv !== "string" || !body.csv) {
+    return c.json({ error: "缺少 unit_id/csv" }, 400);
+  }
+  const unit = await c.env.DB.prepare("SELECT id FROM units WHERE id=?")
+    .bind(body.unit_id).first<{ id: number }>();
+  if (!unit) return c.json({ error: "单元不存在" }, 404);
   const { rows, errors } = parseWordCsv(body.csv);
   let inserted = 0, updated = 0, linked = 0;
   for (const row of rows) {

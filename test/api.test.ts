@@ -931,6 +931,20 @@ describe("admin units sort_key (B7/B8)", () => {
   });
 });
 
+describe("admin: import validates unit exists (B6)", () => {
+  beforeAll(async () => { await applySchema(); });
+  it("import to nonexistent unit returns 404 and writes nothing (B6)", async () => {
+    const wordsBefore = (await env.DB.prepare("SELECT COUNT(*) n FROM words").first<{ n: number }>())!.n;
+    const res = await SELF.fetch("https://example.com/api/admin/import", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ unit_id: 424242, csv: "ghostword,幽灵" }),
+    });
+    expect(res.status).toBe(404);
+    const wordsAfter = (await env.DB.prepare("SELECT COUNT(*) n FROM words").first<{ n: number }>())!.n;
+    expect(wordsAfter).toBe(wordsBefore);
+  });
+});
+
 describe("api 404 fallback (B4)", () => {
   beforeAll(async () => { await applySchema(); });
   it("unknown /api path returns JSON 404, not SPA html", async () => {
