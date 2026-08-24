@@ -39,8 +39,14 @@ kid.get("/users", async (c) => {
 });
 
 kid.post("/review", async (c) => {
-  const body = await c.req.json<{ user_id: number; word_id: number; correct: boolean; source?: string; answer?: string }>();
-  if (!body.user_id || !body.word_id) return c.json({ error: "参数不完整" }, 400);
+  const body = await c.req.json().catch(() => null) as
+    { user_id: number; word_id: number; correct: boolean; source?: string; answer?: string } | null;
+  if (!body || typeof body !== "object") return c.json({ error: "请求体不是合法 JSON" }, 400);
+  if (!Number.isInteger(body.user_id) || body.user_id <= 0 ||
+      !Number.isInteger(body.word_id) || body.word_id <= 0) {
+    return c.json({ error: "参数不完整" }, 400);
+  }
+  if (typeof body.correct !== "boolean") return c.json({ error: "correct 必须为布尔值" }, 400);
   const refs = await c.env.DB.prepare(
     "SELECT (SELECT COUNT(*) FROM users WHERE id=?1) AS u, (SELECT COUNT(*) FROM words WHERE id=?2) AS w"
   ).bind(body.user_id, body.word_id).first<{ u: number; w: number }>();

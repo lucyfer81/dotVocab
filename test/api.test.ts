@@ -109,6 +109,31 @@ describe("kid: users + review + cover", () => {
     ).bind(u!.id, wid).first<{ first_seen_at: number }>();
     expect(row?.first_seen_at).toBeGreaterThan(0);
   });
+
+  it("review rejects non-boolean correct (B2)", async () => {
+    const wid = await seedWord("boolguard", "布尔");
+    for (const correct of ["false", "true", 1, null]) {
+      const body: Record<string, unknown> = { user_id: 1, word_id: wid };
+      if (correct !== null) body.correct = correct; // null 场景=缺失字段
+      const res = await SELF.fetch("https://example.com/api/review", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(400);
+    }
+    // 确认没有任何状态被写入（错误请求不得产生 lapses）
+    const row = await env.DB.prepare(
+      "SELECT reps, lapses FROM user_word_state WHERE user_id=1 AND word_id=?"
+    ).bind(wid).first();
+    expect(row).toBeNull();
+  });
+
+  it("review rejects malformed JSON with 400, not 500 (B5)", async () => {
+    const res = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{bad json",
+    });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("kid: home + sessions", () => {
