@@ -3,6 +3,7 @@ import type { Env } from "./index";
 import { adminAuth } from "./auth";
 import { parseWordCsv } from "./csv";
 import { MASTERY_REPS } from "./srs";
+import { parseJsonBody } from "./http";
 
 const admin = new Hono<{ Bindings: Env }>();
 admin.use("*", adminAuth);
@@ -15,7 +16,8 @@ admin.get("/units", async (c) => {
 });
 
 admin.post("/units", async (c) => {
-  const body = await c.req.json<{ book: string; unit: string; sort_key?: number }>();
+  const body = await parseJsonBody<{ book: string; unit: string; sort_key?: number }>(c);
+  if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
   if (!body.book || !body.unit) return c.json({ error: "缺少 book/unit" }, 400);
   const r = await c.env.DB.prepare(
     `INSERT INTO units (book, unit, sort_key) VALUES (?,?,?)
@@ -26,7 +28,8 @@ admin.post("/units", async (c) => {
 });
 
 admin.post("/import", async (c) => {
-  const body = await c.req.json<{ unit_id: number; csv: string }>();
+  const body = await parseJsonBody<{ unit_id: number; csv: string }>(c);
+  if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
   if (!body.unit_id || !body.csv) return c.json({ error: "缺少 unit_id/csv" }, 400);
   const { rows, errors } = parseWordCsv(body.csv);
   let inserted = 0, updated = 0, linked = 0;
@@ -78,7 +81,8 @@ admin.get("/progress", async (c) => {
 });
 
 admin.post("/reset-progress", async (c) => {
-  const body = await c.req.json<{ scope: string; unit_id?: number; book?: string; user_ids: number[]; deep?: boolean }>();
+  const body = await parseJsonBody<{ scope: string; unit_id?: number; book?: string; user_ids: number[]; deep?: boolean }>(c);
+  if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
   const user_ids = body.user_ids;
   if (!Array.isArray(user_ids) || user_ids.length === 0 ||
       !user_ids.every((n) => Number.isInteger(n) && n > 0)) {
@@ -142,11 +146,21 @@ admin.get("/words", async (c) => {
 });
 
 admin.put("/words/:id", async (c) => {
+  const body = await parseJsonBody<{ pos: string | null; meaning_cn: string; example_en: string | null; example_cn: string | null }>(c);
+  if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
   const id = Number(c.req.param("id"));
-  const body = await c.req.json<{ pos: string | null; meaning_cn: string; example_en: string | null; example_cn: string | null }>();
-  await c.env.DB.prepare(
-    "UPDATE words SET pos=?, meaning_cn=?, example_en=?, example_cn=? WHERE id=?"
-  ).bind(body.pos ?? null, body.meaning_cn, body.example_en ?? null, body.example_cn ?? null, id).run();
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "id 不合法" }, 400);
+  if (typeof body.meaning_cn !== "string" || !body.meaning_cn.trim()) {
+    return c.json({ error: "缺少 meaning_cn" }, 400);
+  }
+  for (const k of ["pos", "example_en", "example_cn"] as const) {
+    if (body[k] != null && typeof body[k] !== "string") return c.json({ error: `${k} 不合法` }, 400);
+  }
+  const updated = await c.env.DB.prepare(
+    "UPDATE words SET pos=?, meaning_cn=?, example_en=?, example_cn=? WHERE id=? RETURNING id"
+  ).bind(body.pos ?? null, body.meaning_cn, body.example_en ?? null, body.example_cn ?? null, id)
+    .first<{ id: number }>();
+  if (!updated) return c.json({ error: "单词不存在" }, 404);
   return c.json({ ok: true });
 });
 

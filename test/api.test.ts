@@ -854,3 +854,52 @@ describe("kid: SRS state updates are atomic (B1 concurrency)", () => {
     expect(starsAfter - starsBefore).toBe(6);
   });
 });
+
+describe("json body guard (B5)", () => {
+  beforeAll(async () => { await applySchema(); });
+  const endpoints = [
+    "/api/cover", "/api/session/unit", "/api/admin/units",
+    "/api/admin/import", "/api/admin/reset-progress",
+  ];
+  for (const ep of endpoints) {
+    it(`POST ${ep} rejects malformed JSON with 400`, async () => {
+      const res = await SELF.fetch("https://example.com" + ep, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": adminToken },
+        body: "not-json",
+      });
+      expect(res.status).toBe(400);
+    });
+  }
+
+  it("PUT /api/admin/words/:id rejects missing meaning_cn with 400", async () => {
+    const wid = await seedWord("putguard", "守");
+    const res = await SELF.fetch(`https://example.com/api/admin/words/${wid}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ pos: "n" }),
+    });
+    expect(res.status).toBe(400);
+    // 原数据未被破坏
+    const row = await env.DB.prepare("SELECT meaning_cn FROM words WHERE id=?").bind(wid).first();
+    expect(row?.meaning_cn).toBe("守");
+  });
+
+  it("PUT /api/admin/words/:id returns 404 for nonexistent word (B10)", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/words/424242", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ meaning_cn: "x", pos: null, example_en: null, example_cn: null }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("PUT /api/admin/words/:id rejects non-integer id with 400", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/words/abc", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ meaning_cn: "x" }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

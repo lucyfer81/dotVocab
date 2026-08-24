@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "./index";
 import { updateSrs, emptyState, type SrsState } from "./srs";
+import { parseJsonBody } from "./http";
 
 const kid = new Hono<{ Bindings: Env }>();
 const TIME_ZONE = "Asia/Shanghai";
@@ -94,7 +95,8 @@ kid.post("/review", async (c) => {
 });
 
 kid.post("/cover", async (c) => {
-  const body = await c.req.json<{ user_id: number; unit_id: number; word_id: number }>();
+  const body = await parseJsonBody<{ user_id: number; unit_id: number; word_id: number }>(c);
+  if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
   if (!body.user_id || !body.unit_id || !body.word_id) return c.json({ error: "参数不完整" }, 400);
   const refs = await c.env.DB.prepare(
     "SELECT (SELECT COUNT(*) FROM users WHERE id=?1) AS u, (SELECT COUNT(*) FROM units WHERE id=?2) AS un, (SELECT COUNT(*) FROM words WHERE id=?3) AS w"
@@ -173,7 +175,8 @@ kid.get("/session/mistakes", async (c) => {
 });
 
 kid.post("/session/unit", async (c) => {
-  const body = await c.req.json<{ user_id: number; unit_id: number }>();
+  const body = await parseJsonBody<{ user_id: number; unit_id: number }>(c);
+  if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
   if (!body.user_id || !body.unit_id) return c.json({ error: "参数不完整" }, 400);
   const { results } = await c.env.DB.prepare(
     `SELECT w.id, w.term, w.pos, w.meaning_cn, w.example_en, w.example_cn,
