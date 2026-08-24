@@ -903,3 +903,22 @@ describe("json body guard (B5)", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("api 404 fallback (B4)", () => {
+  beforeAll(async () => { await applySchema(); });
+  it("unknown /api path returns JSON 404, not SPA html", async () => {
+    const res = await SELF.fetch("https://example.com/api/nonexistent");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await json(res)).toEqual({ error: "not_found" });
+  });
+  it("method mismatch returns JSON 404", async () => {
+    const res = await SELF.fetch("https://example.com/api/review");
+    expect(res.status).toBe(404);
+    expect(await json(res)).toEqual({ error: "not_found" });
+  });
+  it("trailing slash does not fall through to SPA", async () => {
+    const res = await SELF.fetch("https://example.com/api/users/");
+    expect(res.status).toBe(404);
+  });
+});
