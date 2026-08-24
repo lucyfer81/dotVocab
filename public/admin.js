@@ -72,8 +72,20 @@ async function dashboard(flash) {
   const sel = wrap.querySelector("#target");
   units.forEach(u => { const o=document.createElement("option"); o.value=u.id; o.textContent=`${u.book} · ${u.unit}`; sel.appendChild(o); });
   wrap.querySelector("#addunit").onclick = async () => {
-    await api("/units",{method:"POST",body:JSON.stringify({book:wrap.querySelector("#book").value.trim(),unit:wrap.querySelector("#unit").value.trim(),sort_key:Number(wrap.querySelector("#sort").value)||0})});
-    dashboard();
+    const book = wrap.querySelector("#book").value.trim();
+    const unit = wrap.querySelector("#unit").value.trim();
+    if (!book || !unit) { showToast("课本和单元都要填哦", "bad"); return; }
+    const sortRaw = wrap.querySelector("#sort").value.trim();
+    const body = { book, unit };
+    if (sortRaw !== "") {
+      const n = Number(sortRaw);
+      if (!Number.isInteger(n)) { showToast("排序号要填整数", "bad"); return; }
+      body.sort_key = n; // 留空则整个省略：服务端保留旧排序（B7 契约）
+    }
+    try {
+      await api("/units", { method: "POST", body: JSON.stringify(body) });
+      dashboard();
+    } catch (e) { showToast(e.message, "bad"); }
   };
   wrap.querySelector("#imp").onclick = async () => {
     try {
