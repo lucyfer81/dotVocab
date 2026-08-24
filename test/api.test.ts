@@ -904,6 +904,33 @@ describe("json body guard (B5)", () => {
   });
 });
 
+describe("admin units sort_key (B7/B8)", () => {
+  beforeAll(async () => { await applySchema(); });
+  it("re-creating an existing unit without sort_key keeps the old sort_key", async () => {
+    const book = "排序书" + Date.now();
+    await SELF.fetch("https://example.com/api/admin/units", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ book, unit: "U1", sort_key: 5 }),
+    });
+    const res = await SELF.fetch("https://example.com/api/admin/units", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ book, unit: "U1" }), // 不带 sort_key
+    });
+    expect(res.status).toBe(200);
+    const row = await env.DB.prepare(
+      "SELECT sort_key FROM units WHERE book=? AND unit='U1'"
+    ).bind(book).first<{ sort_key: number }>();
+    expect(row?.sort_key).toBe(5); // 修复前被重置为 0
+  });
+  it("rejects non-integer sort_key with 400", async () => {
+    const res = await SELF.fetch("https://example.com/api/admin/units", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ book: "类型书", unit: "U", sort_key: "abc" }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("api 404 fallback (B4)", () => {
   beforeAll(async () => { await applySchema(); });
   it("unknown /api path returns JSON 404, not SPA html", async () => {

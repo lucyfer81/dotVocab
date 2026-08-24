@@ -19,11 +19,17 @@ admin.post("/units", async (c) => {
   const body = await parseJsonBody<{ book: string; unit: string; sort_key?: number }>(c);
   if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
   if (!body.book || !body.unit) return c.json({ error: "缺少 book/unit" }, 400);
+  if (body.sort_key !== undefined && !Number.isInteger(body.sort_key)) {
+    return c.json({ error: "sort_key 必须为整数" }, 400);
+  }
+  // 省略 sort_key：新建默认 0；已存在则保留旧值（COALESCE(?4)），
+  // 杜绝重复建单元把排序悄悄归零、打乱孩子端星球顺序。
   const r = await c.env.DB.prepare(
-    `INSERT INTO units (book, unit, sort_key) VALUES (?,?,?)
-     ON CONFLICT(book, unit) DO UPDATE SET sort_key=excluded.sort_key
+    `INSERT INTO units (book, unit, sort_key) VALUES (?1, ?2, COALESCE(?3, 0))
+     ON CONFLICT(book, unit) DO UPDATE SET sort_key = COALESCE(?4, units.sort_key)
      RETURNING id`
-  ).bind(body.book, body.unit, body.sort_key ?? 0).first<{ id: number }>();
+  ).bind(body.book, body.unit, body.sort_key ?? null, body.sort_key ?? null)
+    .first<{ id: number }>();
   return c.json({ id: r?.id });
 });
 
