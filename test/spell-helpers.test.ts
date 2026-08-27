@@ -46,6 +46,19 @@ describe("sanitizeValue", () => {
   it("strips tabs and newlines", () => {
     expect(sanitizeValue("a\tb\nc")).toBe("abc");
   });
+  it("keeps dots so terms like ask...for help can be typed", () => {
+    expect(sanitizeValue("ask...for help")).toBe("ask...for help");
+  });
+  it("keeps punctuation a stored term may contain (aligned with validateTerm charset)", () => {
+    expect(sanitizeValue("what?")).toBe("what?");
+    expect(sanitizeValue("wow!")).toBe("wow!");
+    expect(sanitizeValue("hello, world")).toBe("hello, world");
+    expect(sanitizeValue("3D")).toBe("3D");
+  });
+  it("strips html-special chars not in the term charset", () => {
+    expect(sanitizeValue("<script>")).toBe("script");
+    expect(sanitizeValue("a;b")).toBe("ab");
+  });
   it("strips emoji", () => {
     expect(sanitizeValue("🎉book")).toBe("book");
   });

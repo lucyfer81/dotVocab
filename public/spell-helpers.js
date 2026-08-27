@@ -16,7 +16,9 @@ export function sanitizeValue(v) {
   // Allow single spaces (phrases like "ice cream"); collapse runs of
   // whitespace to one space and drop leading ones. Trailing space is kept
   // so typing continues naturally; final trim happens at submit.
-  return v.replace(/[^a-zA-Z' -]/g, "").replace(/\s+/g, " ").replace(/^ +/, "");
+  // Allowlist matches the term charset accepted by validateTerm (src/tts.ts):
+  // letters, digits, apostrophe, space, . , ? ! and hyphen.
+  return v.replace(/[^a-zA-Z0-9' .?,!-]/g, "").replace(/\s+/g, " ").replace(/^ +/, "");
 }
 
 export function renderMirrorHtml(v, placeholder) {
