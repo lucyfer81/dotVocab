@@ -1,3 +1,5 @@
+import { isValidTerm, findInvalidTermChar, MAX_TERM_LENGTH } from "./term";
+
 export interface WordRow {
   term: string;
   meaning_cn: string;
@@ -65,6 +67,20 @@ export function parseWordCsv(text: string): ParseResult {
     const meaning_cn = f[1] ?? "";
     if (!term) { errors.push({ line: lineNo, message: "缺少英文单词" }); return; }
     if (!meaning_cn) { errors.push({ line: lineNo, message: "缺少中文释义" }); return; }
+    // 字符集校验：超出词库/TTS 支持范围的词，孩子端打不出、也发不了音，
+    // 导入时就拦下并指出具体字符，而不是入库后变成永远判错的题。
+    if (term.length > MAX_TERM_LENGTH) {
+      errors.push({ line: lineNo, message: `英文单词超过 ${MAX_TERM_LENGTH} 字符（当前 ${term.length}）` });
+      return;
+    }
+    const bad = findInvalidTermChar(term);
+    if (bad) {
+      errors.push({
+        line: lineNo,
+        message: `"${term}" 含不支持的字符 "${bad}"（仅允许字母、数字、空格和 ' . , ? ! -，否则无法发音）`,
+      });
+      return;
+    }
     rows.push({
       term,
       meaning_cn,

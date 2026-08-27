@@ -943,6 +943,29 @@ describe("admin: import validates unit exists (B6)", () => {
     const wordsAfter = (await env.DB.prepare("SELECT COUNT(*) n FROM words").first<{ n: number }>())!.n;
     expect(wordsAfter).toBe(wordsBefore);
   });
+
+  it("import skips rows with unsupported term chars, imports valid rows (charset)", async () => {
+    const u = (await env.DB.prepare(
+      "INSERT INTO units (book, unit) VALUES ('字符集书','U1') RETURNING id"
+    ).first<{ id: number }>())!;
+    const res = await SELF.fetch("https://example.com/api/admin/import", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({
+        unit_id: u.id,
+        csv: "charsetok,好词\nbad(term),坏词\n",
+      }),
+    });
+    const data: any = await json(res);
+    expect(res.status).toBe(200);
+    expect(data.inserted).toBe(1);
+    expect(data.errors.length).toBe(1);
+    expect(data.errors[0].line).toBe(2);
+    expect(data.errors[0].message).toContain("(");
+    const ok = await env.DB.prepare("SELECT term FROM words WHERE term='charsetok'").first();
+    const bad = await env.DB.prepare("SELECT term FROM words WHERE term='bad(term)'").first();
+    expect(ok).not.toBeNull();
+    expect(bad).toBeNull();
+  });
 });
 
 describe("api 404 fallback (B4)", () => {

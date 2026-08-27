@@ -73,4 +73,40 @@ describe("parseWordCsv", () => {
     expect(errors).toEqual([]);
     expect(rows[0]).toEqual({ term: "dog", meaning_cn: "狗, 犬", pos: "n", example_en: null, example_cn: null });
   });
+
+  it("accepts the full supported term charset (digits, ' . , ? ! -)", () => {
+    const { rows, errors } = parseWordCsv(
+      "ask...for help,向……求助\nwhat?,什么\nit's,它是\nmother-in-law,岳母\n3D,三维"
+    );
+    expect(errors).toEqual([]);
+    expect(rows.map((r) => r.term)).toEqual(
+      ["ask...for help", "what?", "it's", "mother-in-law", "3d"]
+    );
+  });
+
+  it("rejects terms with unsupported chars, naming the first bad char", () => {
+    const { rows, errors } = parseWordCsv(
+      "apple,苹果\nbe interested in (doing),感兴趣\nwhat?,什么"
+    );
+    expect(rows.map((r) => r.term)).toEqual(["apple", "what?"]);
+    expect(errors.length).toBe(1);
+    expect(errors[0].line).toBe(2);
+    expect(errors[0].message).toContain("(");
+    expect(errors[0].message).toContain("be interested in (doing)");
+  });
+
+  it("rejects terms with non-ascii letters (accented / chinese)", () => {
+    const { rows, errors } = parseWordCsv("café,咖啡\n苹果,apple");
+    expect(rows.length).toBe(0);
+    expect(errors.length).toBe(2);
+    expect(errors[0].message).toContain("é");
+    expect(errors[1].message).toContain("苹");
+  });
+
+  it("rejects terms longer than 200 chars", () => {
+    const { rows, errors } = parseWordCsv(`${"a".repeat(201)},太长`);
+    expect(rows.length).toBe(0);
+    expect(errors.length).toBe(1);
+    expect(errors[0].message).toContain("200");
+  });
 });
