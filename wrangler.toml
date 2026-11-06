@@ -8,6 +8,10 @@ directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 
+# POC1: Workers AI whisper 对照实验,验收后删除
+[ai]
+binding = "AI"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "dotvocab"

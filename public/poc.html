@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>POC · 语音字母实验</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <meta name="theme-color" content="#0b1026" />
+  <style>
+    /* POC 专属样式:复用全局主题,验收后随本文件一起删除 */
+    .poc { max-width: 560px; margin: 0 auto; padding: 16px; }
+    .poc-banner {
+      background: rgba(255, 123, 114, .16); border: 1px solid rgba(255, 123, 114, .45);
+      border-radius: 12px; padding: 10px 14px; font-size: 14px; color: #ffc9c5; margin-bottom: 12px;
+    }
+    .poc-modes { display: flex; gap: 8px; margin: 8px 0 12px; }
+    .poc-modes .chip {
+      flex: 1; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08);
+      color: var(--ink); border-radius: 12px; padding: 10px; font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    .poc-modes .chip.active { background: var(--pri); color: #06222c; border-color: var(--pri); }
+    .poc-prompt { padding: 18px 22px; }
+    .poc-target {
+      font-size: 88px; font-weight: 800; line-height: 1.1; color: var(--panel-ink);
+      font-family: ui-rounded, -apple-system, sans-serif; letter-spacing: 2px;
+    }
+    .poc-rec {
+      background: linear-gradient(180deg, #ff8a80, #e53935);
+      box-shadow: 0 5px 0 #8e1b16; color: #fff; user-select: none;
+      -webkit-touch-callout: none; touch-action: none;
+    }
+    .poc-rec:active, .poc-rec.recording {
+      transform: translateY(4px); box-shadow: 0 1px 0 #8e1b16;
+      background: linear-gradient(180deg, #ff5252, #c62828);
+    }
+    .poc-rec[disabled] { filter: grayscale(.6); opacity: .7; }
+    .poc-meter {
+      height: 10px; background: rgba(255,255,255,.15); border-radius: 5px; overflow: hidden; margin: 10px 0 4px;
+    }
+    .poc-meter i { display: block; height: 100%; width: 0%; background: var(--ok); transition: width .06s linear; }
+    .poc-status { min-height: 22px; font-size: 15px; }
+    .poc-result { margin: 10px 0; font-size: 18px; line-height: 1.6; }
+    .poc-result .heard { font-size: 26px; font-weight: 800; }
+    .poc-result .verdict-ok { color: var(--ok); font-weight: 800; }
+    .poc-result .verdict-bad { color: var(--bad); font-weight: 800; }
+    .poc-summary { margin-top: 18px; }
+    .poc-summary h2 { font-size: 18px; }
+    .poc-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+    .poc-stat {
+      background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18);
+      border-radius: 12px; padding: 8px 12px; font-size: 14px;
+    }
+    .poc-stat b { font-size: 17px; }
+    .poc-matrix { font-family: ui-monospace, monospace; font-size: 14px; line-height: 1.9; white-space: pre-wrap; }
+    .poc-actions { display: flex; gap: 18px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <main class="poc">
+    <div class="poc-banner">⚠️ POC 实验页 · 仅用于语音字母输入可行性验证,数据只存本机浏览器</div>
+
+    <div class="poc-modes">
+      <button id="mode-letter" class="chip active">字母模式</button>
+      <button id="mode-word" class="chip">单词模式(对照)</button>
+    </div>
+
+    <section class="wordcard poc-prompt">
+      <p class="muted" id="prompt-tip" style="margin:0">请读出屏幕上的字母</p>
+      <div class="poc-target" id="target">A</div>
+      <button id="next" class="link">换一个 ⇄</button>
+    </section>
+
+    <button id="rec" class="big poc-rec">🎙️ 按住说,松开停</button>
+    <div class="poc-meter" aria-hidden="true"><i id="meter"></i></div>
+    <p class="poc-status muted" id="status">等待录音…</p>
+
+    <section class="poc-result" id="result" hidden>
+      <p style="margin:4px 0">听到:<span class="heard" id="heard"></span></p>
+      <p style="margin:4px 0" id="verdict"></p>
+      <p class="muted" style="margin:4px 0;font-size:14px">
+        端到端 <b id="ms-client"></b> ms · Worker→Azure <b id="ms-azure"></b> ms
+      </p>
+    </section>
+
+    <section class="poc-summary">
+      <h2>汇总</h2>
+      <div class="poc-stats" id="summary"></div>
+      <div class="poc-matrix" id="matrix"></div>
+      <div class="poc-actions">
+        <button id="export" class="link">导出 JSON</button>
+        <button id="clear" class="link">清空数据</button>
+        <button id="release" class="link">释放麦克风</button>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/poc.js"></script>
+</body>
+</html>

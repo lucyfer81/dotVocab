@@ -18,3 +18,4 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .worktrees/
+data_vocab/

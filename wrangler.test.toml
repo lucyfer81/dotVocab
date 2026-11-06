@@ -1,0 +1,22 @@
+# 测试专用配置:必须与 wrangler.toml 保持一致,但去掉 [ai] binding——
+# vitest-pool-workers 无法本地运行 Workers AI(需要远端 preview 会话,本账号不可用)。
+# 测试中 env.AI 为 undefined,/api/poc1/asr 走 cf_not_configured 守卫路径。
+name = "dotvocab"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dotvocab"
+database_id = "a2babb4b-9845-4197-8e8a-bc2b30979008"
+
+[[kv_namespaces]]
+binding = "AUDIO"
+id = "ae50b24969b04bfcb294fd0a9dc1d471"
+preview_id = "3daa21c414fe79292981ab8fa2ee9"
