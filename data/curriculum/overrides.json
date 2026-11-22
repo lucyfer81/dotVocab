@@ -1,0 +1,637 @@
+{
+  "merge": [
+    {
+      "book": "一下",
+      "unit": 1,
+      "term": "fine",
+      "meaning": "adj. 身体好的"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "friend",
+      "meaning": "n. 朋友；友人"
+    },
+    {
+      "book": "二下",
+      "unit": 6,
+      "term": "nice",
+      "meaning": "adj. 令人愉快的；美好的"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "book",
+      "meaning": "n. 书；书籍"
+    },
+    {
+      "book": "二上",
+      "unit": 2,
+      "term": "pencil case",
+      "meaning": "n. 铅笔盒；铅笔袋"
+    },
+    {
+      "book": "一下",
+      "unit": 2,
+      "term": "pack",
+      "meaning": "v. 收拾（行李）；装（箱）"
+    },
+    {
+      "book": "二下",
+      "unit": 10,
+      "term": "pack",
+      "meaning": "v. 收拾（行李）；装（箱）"
+    },
+    {
+      "book": "二下",
+      "unit": 9,
+      "term": "classroom",
+      "meaning": "n. 教室；课堂"
+    },
+    {
+      "book": "一下",
+      "unit": 9,
+      "term": "see",
+      "meaning": "v. 看见；看到"
+    },
+    {
+      "book": "二上",
+      "unit": 9,
+      "term": "see",
+      "meaning": "v. 看见；看到"
+    },
+    {
+      "book": "三上",
+      "unit": 3,
+      "term": "see",
+      "meaning": "v. 看见；看到"
+    },
+    {
+      "book": "一下",
+      "unit": 10,
+      "term": "cute",
+      "meaning": "adj. 可爱的"
+    },
+    {
+      "book": "一上",
+      "unit": 6,
+      "term": "happy",
+      "meaning": "adj. 开心的；高兴的"
+    },
+    {
+      "book": "一下",
+      "unit": 1,
+      "term": "happy",
+      "meaning": "adj. 开心的；高兴的"
+    },
+    {
+      "book": "二下",
+      "unit": 3,
+      "term": "happy",
+      "meaning": "adj. 开心的；高兴的"
+    },
+    {
+      "book": "三上",
+      "unit": 6,
+      "term": "happy",
+      "meaning": "adj. 开心的；高兴的"
+    },
+    {
+      "book": "二上",
+      "unit": 7,
+      "term": "warm",
+      "meaning": "adj. 温暖的；暖和的"
+    },
+    {
+      "book": "一上",
+      "unit": 7,
+      "term": "love",
+      "meaning": "v. 爱；热爱"
+    },
+    {
+      "book": "二上",
+      "unit": 7,
+      "term": "love",
+      "meaning": "v. 爱；热爱"
+    },
+    {
+      "book": "二下",
+      "unit": 1,
+      "term": "love",
+      "meaning": "v. 爱；热爱"
+    },
+    {
+      "book": "三上",
+      "unit": 10,
+      "term": "cake",
+      "meaning": "n. 蛋糕"
+    },
+    {
+      "book": "一下",
+      "unit": 2,
+      "term": "egg",
+      "meaning": "n. 蛋"
+    },
+    {
+      "book": "一下",
+      "unit": 3,
+      "term": "hill",
+      "meaning": "n. 山丘；小山"
+    },
+    {
+      "book": "二下",
+      "unit": 5,
+      "term": "have a go",
+      "meaning": "试一试"
+    },
+    {
+      "book": "一下",
+      "unit": 1,
+      "term": "sit",
+      "meaning": "v. 坐"
+    },
+    {
+      "book": "一下",
+      "unit": 7,
+      "term": "ready",
+      "meaning": "adj. 准备好的"
+    },
+    {
+      "book": "三上",
+      "unit": 10,
+      "term": "lunch box",
+      "meaning": "n. 午餐盒"
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "one",
+      "meaning": "num. 一"
+    },
+    {
+      "book": "二下",
+      "unit": 8,
+      "term": "duck",
+      "meaning": "n. 鸭子"
+    },
+    {
+      "book": "一下",
+      "unit": 4,
+      "term": "play",
+      "meaning": "v. 玩"
+    },
+    {
+      "book": "一下",
+      "unit": 7,
+      "term": "play",
+      "meaning": "v. 玩"
+    },
+    {
+      "book": "二下",
+      "unit": 9,
+      "term": "sports field",
+      "meaning": "n. 体育场"
+    },
+    {
+      "book": "三上",
+      "unit": 6,
+      "term": "tired",
+      "meaning": "adj. 疲倦的"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "back",
+      "meaning": "adv. 回到"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "school",
+      "meaning": "n. 学校"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "classmate",
+      "meaning": "n. 同学"
+    },
+    {
+      "book": "二下",
+      "unit": 6,
+      "term": "where",
+      "meaning": "adv. 在哪里"
+    },
+    {
+      "book": "三上",
+      "unit": 4,
+      "term": "where",
+      "meaning": "adv. 在哪里"
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "them",
+      "meaning": "pron. 他 / 她 / 它们（宾格）"
+    },
+    {
+      "book": "二下",
+      "unit": 6,
+      "term": "all",
+      "meaning": "pron. 全部；所有"
+    },
+    {
+      "book": "三上",
+      "unit": 4,
+      "term": "change",
+      "meaning": "v. 改变"
+    },
+    {
+      "book": "三上",
+      "unit": 8,
+      "term": "know",
+      "meaning": "v. 知道"
+    },
+    {
+      "book": "三上",
+      "unit": 3,
+      "term": "grandma",
+      "meaning": "n. （外）祖母"
+    },
+    {
+      "book": "三上",
+      "unit": 2,
+      "term": "cool",
+      "meaning": "adj. 酷的"
+    },
+    {
+      "book": "二下",
+      "unit": 8,
+      "term": "mean",
+      "meaning": "v. 意思是；意味着"
+    },
+    {
+      "book": "三上",
+      "unit": 10,
+      "term": "mean",
+      "meaning": "v. 意思是；意味着"
+    },
+    {
+      "book": "三上",
+      "unit": 8,
+      "term": "road",
+      "meaning": "n. 马路"
+    },
+    {
+      "book": "三上",
+      "unit": 7,
+      "term": "police officer",
+      "meaning": "n. 警察"
+    },
+    {
+      "book": "二上",
+      "unit": 6,
+      "term": "swim",
+      "meaning": "v. 游水；游泳"
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "look at",
+      "meaning": "v. 看"
+    },
+    {
+      "book": "三上",
+      "unit": 9,
+      "term": "miss",
+      "meaning": "v. 想念"
+    },
+    {
+      "book": "三上",
+      "unit": 2,
+      "term": "jump",
+      "meaning": "v. 跳；跃；跳跃"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "play sports",
+      "meaning": "v. 做运动"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "well",
+      "meaning": "adv. 熟练地；技术好地"
+    },
+    {
+      "book": "二下",
+      "unit": 8,
+      "term": "board game",
+      "meaning": "n. 棋盘游戏"
+    },
+    {
+      "book": "二下",
+      "unit": 1,
+      "term": "here",
+      "meaning": "adv. 这里"
+    },
+    {
+      "book": "三上",
+      "unit": 3,
+      "term": "place",
+      "meaning": "n. 地方"
+    },
+    {
+      "book": "三上",
+      "unit": 0,
+      "term": "spring",
+      "meaning": "n. 春天；春季"
+    },
+    {
+      "book": "三上",
+      "unit": 0,
+      "term": "summer",
+      "meaning": "n. 夏天；夏季"
+    },
+    {
+      "book": "三上",
+      "unit": 0,
+      "term": "autumn",
+      "meaning": "n. 秋天；秋季"
+    },
+    {
+      "book": "三上",
+      "unit": 0,
+      "term": "winter",
+      "meaning": "n. 冬天；冬季"
+    },
+    {
+      "book": "三上",
+      "unit": 4,
+      "term": "hot",
+      "meaning": "adj. 炎热的"
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "leaves",
+      "meaning": "n. 树叶（leaf 的复数）"
+    },
+    {
+      "book": "三上",
+      "unit": 3,
+      "term": "leaves",
+      "meaning": "n. 树叶（leaf 的复数）"
+    },
+    {
+      "book": "三上",
+      "unit": 4,
+      "term": "cold",
+      "meaning": "adj. 寒冷的"
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "grass",
+      "meaning": "n. 草；草地"
+    },
+    {
+      "book": "三上",
+      "unit": 4,
+      "term": "lake",
+      "meaning": "n. 湖"
+    },
+    {
+      "book": "三上",
+      "unit": 5,
+      "term": "fall",
+      "meaning": "v. 落下"
+    },
+    {
+      "book": "二下",
+      "unit": 4,
+      "term": "super",
+      "meaning": "adj. 极好的"
+    },
+    {
+      "book": "三上",
+      "unit": 8,
+      "term": "there",
+      "meaning": "adv. 在那里"
+    },
+    {
+      "book": "三上",
+      "unit": 6,
+      "term": "feelings",
+      "meaning": "n. 感觉；情绪（复数）"
+    },
+    {
+      "book": "三上",
+      "unit": 6,
+      "term": "feel",
+      "meaning": "v. 感觉"
+    },
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "teacher",
+      "meaning": "n. 教师"
+    },
+    {
+      "book": "三上",
+      "unit": 3,
+      "term": "garden",
+      "meaning": "n. 花园"
+    },
+    {
+      "book": "三上",
+      "unit": 10,
+      "term": "long",
+      "meaning": "adj. 长的"
+    },
+    {
+      "book": "三上",
+      "unit": 3,
+      "term": "grow",
+      "meaning": "v. 生长"
+    },
+    {
+      "book": "三上",
+      "unit": 2,
+      "term": "sing",
+      "meaning": "v. 唱"
+    },
+    {
+      "book": "三上",
+      "unit": 0,
+      "term": "New Zealand",
+      "meaning": "新西兰"
+    },
+    {
+      "book": "三上",
+      "unit": 6,
+      "term": "sad",
+      "meaning": "adj. 伤心的"
+    },
+    {
+      "book": "三上",
+      "unit": 2,
+      "term": "player",
+      "meaning": "n. 运动员"
+    },
+    {
+      "book": "三上",
+      "unit": 9,
+      "term": "plan",
+      "meaning": "v. 计划；打算"
+    },
+    {
+      "book": "三上",
+      "unit": 6,
+      "term": "unhappy",
+      "meaning": "adj. 不开心的"
+    },
+    {
+      "book": "三上",
+      "unit": 6,
+      "term": "better",
+      "meaning": "adj./adv. 更好的"
+    },
+    {
+      "book": "三上",
+      "unit": 10,
+      "term": "people",
+      "meaning": "n. 人；人们"
+    },
+    {
+      "book": "三上",
+      "unit": 8,
+      "term": "find the way",
+      "meaning": "寻找路线"
+    },
+    {
+      "book": "三上",
+      "unit": 9,
+      "term": "visit",
+      "meaning": "v. 拜访；参观"
+    }
+  ],
+  "split": [
+    {
+      "book": "三上",
+      "unit": 1,
+      "term": "meet",
+      "senses": [
+        {
+          "meaning": "v. 遇见"
+        },
+        {
+          "meaning": "v. 实现计划"
+        }
+      ]
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "too",
+      "senses": [
+        {
+          "meaning": "adv. 也"
+        },
+        {
+          "meaning": "adv. 太"
+        }
+      ]
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "plant",
+      "senses": [
+        {
+          "meaning": "v. 种植"
+        },
+        {
+          "meaning": "n. 植物"
+        }
+      ]
+    },
+    {
+      "book": "二上",
+      "unit": 2,
+      "term": "tidy",
+      "senses": [
+        {
+          "meaning": "v. 整理"
+        },
+        {
+          "meaning": "adj. 整洁的"
+        }
+      ]
+    },
+    {
+      "book": "二下",
+      "unit": 2,
+      "term": "tidy",
+      "senses": [
+        {
+          "meaning": "v. 整理"
+        },
+        {
+          "meaning": "adj. 整洁的"
+        }
+      ]
+    },
+    {
+      "book": "三上",
+      "unit": 8,
+      "term": "turn left / right",
+      "senses": [
+        {
+          "display": "turn left",
+          "accepted": [
+            "turn left"
+          ],
+          "meaning": "向左转"
+        },
+        {
+          "display": "turn right",
+          "accepted": [
+            "turn right"
+          ],
+          "meaning": "向右转"
+        }
+      ]
+    }
+  ],
+  "aliases": [
+    {
+      "book": "一下",
+      "unit": 3,
+      "term": "colour（动词）",
+      "display": "colour",
+      "accepted": [
+        "colour"
+      ]
+    },
+    {
+      "book": "一下",
+      "unit": 4,
+      "term": "swing（动词）",
+      "display": "swing",
+      "accepted": [
+        "swing"
+      ]
+    },
+    {
+      "book": "二下",
+      "unit": 7,
+      "term": "the part(s) of",
+      "accepted": [
+        "the part of",
+        "the parts of"
+      ]
+    }
+  ]
+}
