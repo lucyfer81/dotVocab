@@ -1,6 +1,6 @@
-# 测试专用配置:必须与 wrangler.toml 保持一致,但去掉 [ai] binding——
-# vitest-pool-workers 无法本地运行 Workers AI(需要远端 preview 会话,本账号不可用)。
-# 测试中 env.AI 为 undefined,/api/poc1/asr 走 cf_not_configured 守卫路径。
+# 测试专用配置:资源绑定与 wrangler.toml 保持一致,外加测试专用 [vars]。
+# (POC1 的 [ai] binding 已随 POC 移除;若将来 wrangler.toml 加入 vitest-pool-workers
+#  本地跑不了的绑定(如 Workers AI),在此文件中去掉即可,勿动生产配置。)
 name = "dotvocab"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
