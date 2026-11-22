@@ -52,6 +52,54 @@ describe("makeEventId：`${userId}:${uuid}` 规范", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
   });
+
+  // I-1 回退路径：旧 iPad（Safari<15.4）与非安全上下文没有 crypto.randomUUID，
+  // 甚至可能没有 crypto 对象——eventId 生成不允许抛错挂起每日主流程。
+  // 用 Object.defineProperty 换入假 crypto 并还原（workerd 下 fake timers 同样
+  // 替换全局，机制已在本仓库验证），等价于目标浏览器"缺失该 API"。
+  function withFakeCrypto(fake: unknown, run: () => void) {
+    const desc = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+    Object.defineProperty(globalThis, "crypto", { value: fake, configurable: true, writable: true });
+    try {
+      run();
+    } finally {
+      if (desc) Object.defineProperty(globalThis, "crypto", desc);
+      else Reflect.deleteProperty(globalThis, "crypto");
+    }
+  }
+
+  it("crypto.randomUUID 缺失：回退 getRandomValues 拼 v4（前缀/形状/唯一）", () => {
+    let seq = 0;
+    const fake = {
+      getRandomValues: (arr: Uint8Array) => {
+        for (let i = 0; i < arr.length; i++) arr[i] = (seq * 31 + i * 7) & 0xff; // 随调用递增：两次结果不同
+        seq++;
+        return arr;
+      },
+    };
+    let a = "";
+    let b = "";
+    withFakeCrypto(fake, () => {
+      a = makeEventId(7);
+      b = makeEventId(7);
+    });
+    expect(a).toMatch(/^7:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(b).toMatch(/^7:/);
+    expect(a).not.toBe(b);
+  });
+
+  it("getRandomValues 也缺失：Math.random 兜底仍返回带前缀的 v4 形状且不重复", () => {
+    let a = "";
+    let b = "";
+    withFakeCrypto({}, () => {
+      a = makeEventId(9);
+      b = makeEventId(9);
+    });
+    expect(a).toMatch(/^9:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(b).toMatch(/^9:/);
+    expect(a).not.toBe(b);
+    expect(a.length).toBeLessThanOrEqual(100);
+  });
 });
 
 // ---------- recordDailyAnswer：每日作答上报 ----------

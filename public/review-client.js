@@ -1,7 +1,7 @@
 // ---------- 上报客户端：两条互不越界的通道 ----------
 // 1) recordDailyAnswer —— 每日任务：POST /api/daily/answer（服务端判定、FSRS、星星）。
-//    eventId 规范 `${userId}:${crypto.randomUUID()}`：event_id 是全局主键，裸 UUID
-//    在撞库 + 跨用户碰撞时会被服务端守卫拒绝（applied=false），带用户前缀从根上避免。
+//    eventId 规范 `${userId}:${uuid}`：event_id 是全局主键，裸 UUID 在撞库 + 跨用户
+//    碰撞时会被服务端守卫拒绝（applied=false），带用户前缀从根上避免。
 //    断线重试沿用同一 eventId（服务端按 eventId 幂等回放，同一作答重发不换 ID、
 //    不重复计分）；409 = 清单已过上海午夜（onConflict 一次，本地不再重试该事件）；
 //    响应里的 item.status 是权威状态，上层必须直接采纳（迟到设备可能拿到
@@ -11,8 +11,46 @@
 //    同一 eventId 稳定重试；失败只做 onError 非阻塞提示，绝不打断练习节奏。
 // scheduleDailyItems —— 会话队列调度纯函数（恢复会话与中途调度共用同一规则）。
 
+// UUID 生成三层回退（审阅 Important I-1）：项目设备画像含旧 iPad（Safari < 15.4，
+// 无 crypto.randomUUID）且非安全上下文下 crypto 本身可能缺失——每日主流程的
+// eventId 生成不允许抛错挂起 UI。
+//   1) crypto.randomUUID()（现代浏览器 + 安全上下文）
+//   2) crypto.getRandomValues(new Uint8Array(16)) 拼 v4 形式
+//   3) Math.random 兜底拼 v4 形式（随机性最弱；每人每日事件量 ≤20，同用户碰撞
+//      可忽略，服务端另有归属校验与跨用户守卫兜底）
+// 三层输出统一为 36 位 v4 形状（8-4-4-4-12 含连字符），eventId 总长 ≤100。
+function randomUuid() {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") {
+    try {
+      return c.randomUUID();
+    } catch {
+      // 环境异常：落向下层回退
+    }
+  }
+  if (c && typeof c.getRandomValues === "function") {
+    try {
+      const bytes = c.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+      bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+      let hex = "";
+      for (let i = 0; i < 16; i++) hex += bytes[i].toString(16).padStart(2, "0");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    } catch {
+      // 环境异常：落向下层回退
+    }
+  }
+  const hexBlock = (n) => {
+    let s = "";
+    while (s.length < n) s += Math.floor(Math.random() * 16).toString(16);
+    return s;
+  };
+  const variant = "89ab"[Math.floor(Math.random() * 4)];
+  return `${hexBlock(8)}-${hexBlock(4)}-4${hexBlock(3)}-${variant}${hexBlock(3)}-${hexBlock(12)}`;
+}
+
 export function makeEventId(userId) {
-  return `${userId}:${crypto.randomUUID()}`;
+  return `${userId}:${randomUuid()}`;
 }
 
 // 恢复/调度规则：
