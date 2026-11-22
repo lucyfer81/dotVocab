@@ -2,19 +2,15 @@ import { Hono } from "hono";
 import type { Env } from "./index";
 import { updateSrs, emptyState, type SrsState } from "./srs";
 import { parseJsonBody } from "./http";
+import { dayStr, openDailyList } from "./daily-list";
 
 const kid = new Hono<{ Bindings: Env }>();
-const TIME_ZONE = "Asia/Shanghai";
 
 // INTERVALS_DAYS = [0,1,2,4,8,16,30,60] 的 SQL 等价物。
 // idx = max(0, min(旧reps+1, 7) - (旧lapses>0 ? 1 : 0))；与 updateSrs 的正确分支一致。
 const INTERVAL_CASE = `CASE MAX(MIN(user_word_state.reps + 1, 7) - (user_word_state.lapses > 0), 0)
   WHEN 0 THEN 0 WHEN 1 THEN 1 WHEN 2 THEN 2 WHEN 3 THEN 4
   WHEN 4 THEN 8 WHEN 5 THEN 16 WHEN 6 THEN 30 ELSE 60 END`;
-
-function dayStr(ms: number): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(new Date(ms));
-}
 
 async function applyReviewStats(db: D1Database, userId: number, now: number, correct: boolean) {
   const today = dayStr(now);
@@ -192,6 +188,17 @@ kid.post("/session/unit", async (c) => {
      ORDER BY RANDOM()`
   ).bind(body.user_id, body.user_id, body.unit_id).all();
   return c.json(results);
+});
+
+// 每日清单：生成并固定当天清单（并发抢占与选词规则见 src/daily-list.ts）。
+kid.post("/daily/open", async (c) => {
+  const body = await parseJsonBody<{ userId: number }>(c);
+  if (!body || !Number.isSafeInteger(body.userId) || body.userId <= 0) {
+    return c.json({ error: "参数不完整" }, 400);
+  }
+  const user = await c.env.DB.prepare("SELECT id FROM users WHERE id=?").bind(body.userId).first();
+  if (!user) return c.json({ error: "用户不存在" }, 404);
+  return c.json(await openDailyList(c.env.DB, body.userId, Date.now()));
 });
 
 export { kid };
