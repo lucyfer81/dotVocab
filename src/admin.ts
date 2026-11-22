@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import type { Env } from "./index";
 import { adminAuth } from "./auth";
 import { parseWordCsv } from "./csv";
-import { MASTERY_REPS } from "./srs";
 import { parseJsonBody } from "./http";
 
 const admin = new Hono<{ Bindings: Env }>();
@@ -130,9 +129,11 @@ admin.get("/progress", async (c) => {
     const st = await c.env.DB.prepare(
       "SELECT stars, streak_days FROM user_stats WHERE user_id=?"
     ).bind(u.id).first<{ stars: number; streak_days: number }>();
+    // mastered（已掌握）新世界口径（任务 7 简报裁定）：user_cards 行数 = 学过的词。
+    // 旧 user_word_state 换库后恒空，不再作为口径来源。
     const mastered = await c.env.DB.prepare(
-      "SELECT COUNT(*) as n FROM user_word_state WHERE user_id=? AND reps>=?"
-    ).bind(u.id, MASTERY_REPS).first<{ n: number }>();
+      "SELECT COUNT(*) as n FROM user_cards WHERE user_id=?"
+    ).bind(u.id).first<{ n: number }>();
     out.push({
       id: u.id, name: u.name, avatar: u.avatar,
       stars: st?.stars ?? 0, streak_days: st?.streak_days ?? 0,

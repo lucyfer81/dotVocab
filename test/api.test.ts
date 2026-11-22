@@ -136,69 +136,194 @@ describe("kid: users + review + cover", () => {
   });
 });
 
-describe("kid: home + sessions", () => {
+// —— 任务 7 新世界夹具（教材/共享池/卡片；id 用 8xx 段、sense 用 t7- 前缀防撞）——
+
+async function seedKid(id: number, name: string) {
+  await env.DB.prepare("INSERT INTO users (id, name, avatar) VALUES (?,?,'🧪')").bind(id, name).run();
+}
+
+async function seedCurriculumUnit(id: number, bookOrder: number, unit: number, book?: string, title?: string) {
+  await env.DB.prepare("INSERT INTO curriculum_units VALUES (?,?,?,?,?)")
+    .bind(id, book ?? `册${id}`, title ?? `测试第${id}册`, bookOrder, unit).run();
+}
+
+async function seedSenseT7(senseId: string, term: string, meaning: string, accepted: string[] = [term]) {
+  await env.DB.prepare("INSERT INTO curriculum_senses VALUES (?,?,?,?)")
+    .bind(senseId, term, meaning, JSON.stringify(accepted)).run();
+}
+
+async function linkSenseT7(unitId: number, senseId: string, rowOrder: number) {
+  await env.DB.prepare("INSERT INTO curriculum_unit_senses VALUES (?,?,?)").bind(unitId, senseId, rowOrder).run();
+}
+
+async function openUnitT7(unitId: number) {
+  await env.DB.prepare("INSERT INTO pool_units VALUES (?)").bind(unitId).run();
+}
+
+async function seedUserCardT7(userId: number, senseId: string, dueAt: number) {
+  await env.DB.prepare("INSERT INTO user_cards (user_id, sense_id, due_at, card_json) VALUES (?,?,?,'{}')")
+    .bind(userId, senseId, dueAt).run();
+}
+
+// 注意：vitest-pool-workers 默认 isolatedStorage=true，同一文件内**按用例回滚**：
+// beforeAll（applySchema）的表结构与种子用户对每个用例可见，但前面用例 body 里
+// 插入的行不可见。因此每个用例必须自带全部夹具（用户/单元/词义/卡），
+// 也不存在"后面用例被前面用例入池的新词污染"的问题。
+
+describe("kid: home（新世界契约：daily 卡片 + 错词数 + 开放单元）", () => {
   beforeAll(async () => { await applySchema(); });
 
-  it("GET /api/home returns stats + due_count + unit progress", async () => {
-    const res = await SELF.fetch("https://example.com/api/home?user_id=1");
-    const data = await json(res);
+  it("返回 stars/streak_days/mistakeCount/daily/units；units 只含共享池单元；未生成清单时 daily 为 null（不提前锁定）", async () => {
+    const u = 540;
+    await seedKid(u, "首页甲");
+    await seedCurriculumUnit(801, 1, 1);
+    await seedSenseT7("t7-home-a@1", "homea", "首页词甲");
+    await seedSenseT7("t7-home-b@1", "homeb", "首页词乙");
+    await linkSenseT7(801, "t7-home-a@1", 1);
+    await linkSenseT7(801, "t7-home-b@1", 2);
+    await openUnitT7(801);
+    // 池外单元：不得出现在首页
+    await seedCurriculumUnit(802, 2, 1);
+    await seedSenseT7("t7-home-c@1", "homec", "池外词");
+    await linkSenseT7(802, "t7-home-c@1", 1);
+
+    const res = await SELF.fetch(`https://example.com/api/home?user_id=${u}`);
+    const data = await json(res) as any;
     expect(res.status).toBe(200);
-    expect(data).toHaveProperty("stars");
-    expect(data).toHaveProperty("streak_days");
-    expect(data).toHaveProperty("due_count");
+    expect(typeof data.stars).toBe("number");
+    expect(typeof data.streak_days).toBe("number");
+    expect(data.mistakeCount).toBe(0);
+    expect(data.daily).toBeNull(); // 首页以已生成清单为准，预览不锁定当天清单
     expect(Array.isArray(data.units)).toBe(true);
+    expect(data.units.map((x: any) => x.unitId)).toEqual([801]);
+    expect(data.units[0]).toMatchObject({ book: `册801`, total: 2, covered: 0, pct: 0 });
+  });
+
+  it("daily 卡片随清单生成与作答推进：done/total 为权威进度", async () => {
+    const u = 541;
+    await seedKid(u, "首页乙");
+    await seedCurriculumUnit(803, 3, 1);
+    await seedSenseT7("t7-home-d@1", "homed", "进度词甲", ["homed"]);
+    await seedSenseT7("t7-home-e@1", "homee", "进度词乙", ["homee"]);
+    await linkSenseT7(803, "t7-home-d@1", 1);
+    await linkSenseT7(803, "t7-home-e@1", 2);
+    await openUnitT7(803);
+
+    const opened = await json(await SELF.fetch("https://example.com/api/daily/open", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: u }),
+    })) as any;
+    expect(opened.items).toHaveLength(2);
+
+    let home = await json(await SELF.fetch(`https://example.com/api/home?user_id=${u}`)) as any;
+    expect(home.daily).toMatchObject({ day: opened.day, limit: opened.limit, done: 0, total: 2 });
+
+    // 答对第一条 → done 权威 +1
+    const ans = await SELF.fetch("https://example.com/api/daily/answer", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: u, itemId: opened.items[0].id, eventId: "t7-home-evt-1", action: "spell", answer: "homed" }),
+    });
+    expect(ans.status).toBe(200);
+    expect(((await json(ans)) as any).item.status).toBe("done");
+
+    home = await json(await SELF.fetch(`https://example.com/api/home?user_id=${u}`)) as any;
+    expect(home.daily.done).toBe(1);
+    expect(home.daily.total).toBe(2);
+  });
+
+  it("mistakeCount 由每日答错派生；订正完成后仍保留当天首次失败", async () => {
+    const u = 542;
+    await seedKid(u, "首页丙");
+    await seedCurriculumUnit(804, 4, 1);
+    await seedSenseT7("t7-home-f@1", "homef", "错词本词", ["homef"]);
+    await linkSenseT7(804, "t7-home-f@1", 1);
+    await openUnitT7(804);
+    const opened = await json(await SELF.fetch("https://example.com/api/daily/open", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: u }),
+    })) as any;
+    const itemId = opened.items[0].id;
+    const answer = (eventId: string, act: string, word: string) =>
+      SELF.fetch("https://example.com/api/daily/answer", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: u, itemId, eventId, action: act, answer: word }),
+      });
+
+    const home0 = await json(await SELF.fetch(`https://example.com/api/home?user_id=${u}`)) as any;
+    expect(home0.mistakeCount).toBe(0);
+
+    expect((await answer("t7-home-evt-2", "spell", "wrong")).status).toBe(200);
+    let home = await json(await SELF.fetch(`https://example.com/api/home?user_id=${u}`)) as any;
+    expect(home.mistakeCount).toBe(1);
+
+    // 订正答对：错词本保留（当天首次失败不清除）
+    expect((await answer("t7-home-evt-3", "spell", "homef")).status).toBe(200);
+    home = await json(await SELF.fetch(`https://example.com/api/home?user_id=${u}`)) as any;
+    expect(home.mistakeCount).toBe(1);
+    expect(home.daily.done).toBe(1);
+  });
+
+  it("units covered 按本人 user_cards 计：两人共用单元，进度互不影响", async () => {
+    const u1 = 543, u2 = 544;
+    await seedKid(u1, "兄弟甲7");
+    await seedKid(u2, "兄弟乙7");
+    await seedCurriculumUnit(805, 5, 1);
+    await seedSenseT7("t7-home-g@1", "homeg", "共享词甲");
+    await seedSenseT7("t7-home-h@1", "homeh", "共享词乙");
+    await linkSenseT7(805, "t7-home-g@1", 1);
+    await linkSenseT7(805, "t7-home-h@1", 2);
+    await openUnitT7(805);
+    await seedUserCardT7(u1, "t7-home-g@1", Date.now() + 86_400_000);
+
+    const h1 = await json(await SELF.fetch(`https://example.com/api/home?user_id=${u1}`)) as any;
+    const h2 = await json(await SELF.fetch(`https://example.com/api/home?user_id=${u2}`)) as any;
+    const unit805a = h1.units.find((x: any) => x.unitId === 805);
+    const unit805b = h2.units.find((x: any) => x.unitId === 805);
+    expect(unit805a).toMatchObject({ total: 2, covered: 1, pct: 50 });
+    expect(unit805b).toMatchObject({ total: 2, covered: 0, pct: 0 });
   });
 
   it("GET /api/home with missing user_id => 400", async () => {
     const res = await SELF.fetch("https://example.com/api/home");
     expect(res.status).toBe(400);
   });
+});
 
-  it("GET /api/session/due returns only due words", async () => {
-    const wid = await seedWord("dog", "狗");
-    await env.DB.prepare(
-      "INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses) VALUES (1,?,0,0,0,0)"
-    ).bind(wid).run();
-    const res = await SELF.fetch("https://example.com/api/session/due?user_id=1");
-    const data: any = await json(res);
+// ---------- 单元练习数据源：开放单元词表 ----------
+
+describe("kid: 单元词表 GET /api/unit-words（开放单元，含 accepted）", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  it("开放单元按 row_order 返回 {senseId, term, meaning, accepted}", async () => {
+    const u = 545;
+    await seedKid(u, "词表甲");
+    await seedCurriculumUnit(806, 6, 1);
+    await seedSenseT7("t7-uw-b@1", "betaword", "词表乙", ["betaword", "beta"]);
+    await seedSenseT7("t7-uw-a@1", "alphaword", "词表甲");
+    await linkSenseT7(806, "t7-uw-b@1", 2);
+    await linkSenseT7(806, "t7-uw-a@1", 1);
+    await openUnitT7(806);
+
+    const res = await SELF.fetch("https://example.com/api/unit-words?unit_id=806");
+    const data = await json(res) as any[];
     expect(res.status).toBe(200);
-    expect(data.some((w: any) => w.term === "dog")).toBe(true);
+    expect(data).toEqual([
+      { senseId: "t7-uw-a@1", term: "alphaword", meaning: "词表甲", accepted: ["alphaword"] },
+      { senseId: "t7-uw-b@1", term: "betaword", meaning: "词表乙", accepted: ["betaword", "beta"] },
+    ]);
   });
 
-  it("GET /api/session/unit returns uncovered words; covered ones excluded", async () => {
-    const u = await env.DB.prepare(
-      "INSERT INTO units (book, unit) VALUES ('书A','Unit 1') RETURNING id"
-    ).first<{ id: number }>();
-    const w1 = await seedWord("elephant", "大象");
-    const w2 = await seedWord("fish", "鱼");
-    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?)").bind(u!.id, w1, u!.id, w2).run();
-    await env.DB.prepare(
-      "INSERT INTO user_unit_word_seen (user_id, unit_id, word_id, first_seen_at) VALUES (1,?,?,1)"
-    ).bind(u!.id, w1).run();
-    const res = await SELF.fetch("https://example.com/api/session/unit", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ user_id: 1, unit_id: u!.id }),
-    });
-    const data: any = await json(res);
-    const terms = data.map((w: any) => w.term);
-    expect(terms).toContain("fish");
-    expect(terms).not.toContain("elephant");
-  });
-
-  it("duplicate word across units is tested at least once per unit", async () => {
-    const u1 = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('书','U1') RETURNING id").first<{ id: number }>();
-    const u2 = await env.DB.prepare("INSERT INTO units (book, unit) VALUES ('书','U2') RETURNING id").first<{ id: number }>();
-    const wid = await seedWord("grape", "葡萄");
-    await env.DB.prepare("INSERT INTO unit_words (unit_id, word_id) VALUES (?,?),(?,?)").bind(u1!.id, wid, u2!.id, wid).run();
-    await env.DB.prepare(
-      "INSERT INTO user_unit_word_seen (user_id, unit_id, word_id, first_seen_at) VALUES (1,?,?,1)"
-    ).bind(u1!.id, wid).run();
-    const res = await SELF.fetch("https://example.com/api/session/unit", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ user_id: 1, unit_id: u2!.id }),
-    });
-    const data: any = await json(res);
-    expect(data.some((w: any) => w.term === "grape")).toBe(true);
+  it("未开放（不在共享池）单元 404；未知单元 404；缺 unit_id 400", async () => {
+    await seedCurriculumUnit(807, 7, 1);
+    await seedSenseT7("t7-uw-c@1", "closedword", "池外词表词");
+    await linkSenseT7(807, "t7-uw-c@1", 1);
+    // 807 存在但未入池
+    const closed = await SELF.fetch("https://example.com/api/unit-words?unit_id=807");
+    expect(closed.status).toBe(404);
+    const unknown = await SELF.fetch("https://example.com/api/unit-words?unit_id=987654");
+    expect(unknown.status).toBe(404);
+    const bad = await SELF.fetch("https://example.com/api/unit-words");
+    expect(bad.status).toBe(400);
   });
 });
 
@@ -374,15 +499,35 @@ describe("admin: words CRUD + progress", () => {
     });
     const data: any = await json(res);
     expect(res.status).toBe(200);
-    expect(data.length).toBe(2);
+    // 只断言两个真实孩子在列且字段齐全（隔离存储下 progress 用户即 beforeAll 种子的 1/2）
+    const ids = data.map((u: any) => u.id);
+    expect(ids).toContain(1);
+    expect(ids).toContain(2);
     expect(data.every((u: any) => "stars" in u && "mastered" in u)).toBe(true);
+  });
+
+  it("GET /api/admin/progress：mastered = user_cards 行数（新世界口径：学过的词）", async () => {
+    const u = 551;
+    await seedKid(u, "掌握口径");
+    await seedSenseT7("t7-master-a@1", "mastera", "掌握词甲");
+    await seedSenseT7("t7-master-b@1", "masterb", "掌握词乙");
+    await seedUserCardT7(u, "t7-master-a@1", Date.now() + 86_400_000);
+    await seedUserCardT7(u, "t7-master-b@1", Date.now() + 2 * 86_400_000);
+
+    const res = await SELF.fetch("https://example.com/api/admin/progress", {
+      headers: { "x-admin-token": adminToken },
+    });
+    const data: any = await json(res);
+    const mine = data.find((x: any) => x.id === u);
+    expect(mine.mastered).toBe(2); // 两张卡片 = 学过两个词
+    expect(data.every((x: any) => typeof x.mastered === "number")).toBe(true);
   });
 });
 
 describe("admin: word delete cascades to avoid orphan inflation", () => {
   beforeAll(async () => { await applySchema(); });
 
-  it("deleting a word removes its unit_links + state; home total no longer inflated", async () => {
+  it("deleting a word removes its unit_links + state + events", async () => {
     const u = await env.DB.prepare(
       "INSERT INTO units (book, unit) VALUES ('书D','U1') RETURNING id"
     ).first<{ id: number }>();
@@ -391,9 +536,9 @@ describe("admin: word delete cascades to avoid orphan inflation", () => {
     await env.DB.prepare(
       "INSERT INTO user_word_state (user_id, word_id, reps, interval_days, due_at, lapses) VALUES (1,?,1,1,0,0)"
     ).bind(wid).run();
-
-    let home: any = await json(await SELF.fetch("https://example.com/api/home?user_id=1"));
-    expect(home.units.find((x: any) => x.unit_id === u!.id)?.total).toBe(1);
+    await env.DB.prepare(
+      "INSERT INTO wrong_answer_events (user_id, word_id, answer, source, created_at) VALUES (1,?,'oops',NULL,1)"
+    ).bind(wid).run();
 
     const res = await SELF.fetch(`https://example.com/api/admin/words/${wid}`, {
       method: "DELETE", headers: { "x-admin-token": adminToken },
@@ -402,9 +547,7 @@ describe("admin: word delete cascades to avoid orphan inflation", () => {
 
     expect(await env.DB.prepare("SELECT word_id FROM unit_words WHERE word_id=?").bind(wid).first()).toBeNull();
     expect(await env.DB.prepare("SELECT word_id FROM user_word_state WHERE word_id=?").bind(wid).first()).toBeNull();
-
-    home = await json(await SELF.fetch("https://example.com/api/home?user_id=1"));
-    expect(home.units.find((x: any) => x.unit_id === u!.id)?.total).toBe(0);
+    expect(await env.DB.prepare("SELECT word_id FROM wrong_answer_events WHERE word_id=?").bind(wid).first()).toBeNull();
   });
 });
 
@@ -739,47 +882,277 @@ describe("kid: wrong-answer events (mistake book logging)", () => {
   });
 });
 
-describe("kid: mistake book derived queue + home count", () => {
+describe("kid: 错词本 GET /api/mistakes（answer_events 每日答错派生）", () => {
   beforeAll(async () => { await applySchema(); });
-  const h = { "content-type": "application/json" };
-  const post = (url: string, body: unknown) =>
-    SELF.fetch("https://example.com" + url, { method: "POST", headers: h, body: JSON.stringify(body) });
 
-  it("wrong word enters book; 2 consecutive corrects graduate it; re-wrong re-enters", async () => {
-    const wid = await seedWord("mb_word", "册甲");
-    const inBook = async () => {
-      const res = await SELF.fetch("https://example.com/api/session/mistakes?user_id=1");
-      return (await json(res) as any[]).some((w) => w.term === "mb_word");
-    };
-    expect(await inBook()).toBe(false); // 全新词不在册
-    await post("/api/review", { user_id: 1, word_id: wid, correct: false });
-    expect(await inBook()).toBe(true);  // 错一次进本
-    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
-    expect(await inBook()).toBe(true);  // 只对一次仍在册
-    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
-    expect(await inBook()).toBe(false); // 连对 2 次毕业
-    await post("/api/review", { user_id: 1, word_id: wid, correct: false });
-    expect(await inBook()).toBe(true);  // 毕业后再错重新进本
-  });
+  async function seedWrongEvent(eventId: string, userId: number, senseId: string, createdAt: number, source = "daily") {
+    await env.DB.prepare(
+      `INSERT INTO answer_events (event_id, user_id, sense_id, item_id, source, action, answer, correct, created_at)
+       VALUES (?,?,?,NULL,?,'spell','oops',0,?)`
+    ).bind(eventId, userId, senseId, source, createdAt).run();
+  }
 
-  it("home mistake_count tracks book size", async () => {
-    const wid = await seedWord("mb_count", "册乙");
-    const home = async () =>
-      (await json(await SELF.fetch("https://example.com/api/home?user_id=1")) as any).mistake_count;
-    const before = await home();
-    await post("/api/review", { user_id: 1, word_id: wid, correct: false });
-    expect(await home()).toBe(before + 1);
-    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
-    await post("/api/review", { user_id: 1, word_id: wid, correct: true });
-    expect(await home()).toBe(before); // 毕业, 计数回落
-  });
-
-  it("empty book returns []; missing user_id => 400", async () => {
-    const res = await SELF.fetch("https://example.com/api/session/mistakes?user_id=910");
+  it("空词本返回 []；缺 user_id 400；未知用户 404", async () => {
+    const u = 546;
+    await seedKid(u, "词本空");
+    const res = await SELF.fetch(`https://example.com/api/mistakes?user_id=${u}`);
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual([]);
-    const bad = await SELF.fetch("https://example.com/api/session/mistakes");
+    const bad = await SELF.fetch("https://example.com/api/mistakes");
     expect(bad.status).toBe(400);
+    const ghost = await SELF.fetch("https://example.com/api/mistakes?user_id=424242");
+    expect(ghost.status).toBe(404);
+  });
+
+  it("只派生每日作答（source='daily'）的答错记录；加练（unit/mistake）不入本", async () => {
+    const u = 547;
+    await seedKid(u, "词本派生");
+    await seedSenseT7("t7-mb-daily@1", "dailywrong", "每日答错词", ["dailywrong"]);
+    await seedSenseT7("t7-mb-unit@1", "unitwrong", "加练答错词", ["unitwrong"]);
+    await seedWrongEvent("t7-mb-evt-1", u, "t7-mb-daily@1", Date.now());
+    await seedWrongEvent("t7-mb-evt-2", u, "t7-mb-unit@1", Date.now(), "unit");
+    await seedWrongEvent("t7-mb-evt-3", u, "t7-mb-unit@1", Date.now(), "mistake");
+    const data = await json(await SELF.fetch(`https://example.com/api/mistakes?user_id=${u}`)) as any[];
+    expect(data.map((x) => x.senseId)).toEqual(["t7-mb-daily@1"]);
+    expect(data[0]).toMatchObject({ term: "dailywrong", meaning: "每日答错词" });
+    expect(typeof data[0].lastWrongAt).toBe("number");
+  });
+
+  it("同 sense 多次答错去重，lastWrongAt 取最近一次", async () => {
+    const u = 548;
+    await seedKid(u, "词本去重");
+    await seedSenseT7("t7-mb-dup@1", "dupwrong", "重复答错词", ["dupwrong"]);
+    const t1 = 1_700_000_000_000;
+    const t2 = 1_700_000_100_000;
+    await seedWrongEvent("t7-mb-evt-4", u, "t7-mb-dup@1", t1);
+    await seedWrongEvent("t7-mb-evt-5", u, "t7-mb-dup@1", t2);
+    const data = await json(await SELF.fetch(`https://example.com/api/mistakes?user_id=${u}`)) as any[];
+    expect(data).toHaveLength(1);
+    expect(data[0].lastWrongAt).toBe(t2);
+  });
+
+  it("返回 accepted 数组供自主加练判定；他人答错不进我的词本", async () => {
+    const me = 549, other = 550;
+    await seedKid(me, "词本甲");
+    await seedKid(other, "词本乙");
+    await seedSenseT7("t7-mb-alias@1", "aliasword", "别名错词", ["aliasword", "alias"]);
+    await seedWrongEvent("t7-mb-evt-6", me, "t7-mb-alias@1", Date.now());
+    await seedWrongEvent("t7-mb-evt-7", other, "t7-mb-alias@1", Date.now());
+    const data = await json(await SELF.fetch(`https://example.com/api/mistakes?user_id=${me}`)) as any[];
+    expect(data).toHaveLength(1);
+    expect(data[0].accepted).toEqual(["aliasword", "alias"]);
+  });
+});
+
+describe("kid: 每日流程 API 回归（open → answer → status 权威；加练不越界）", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  const openDaily = (userId: number) =>
+    SELF.fetch("https://example.com/api/daily/open", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+
+  async function setupDaily(u: number, unitId: number, senses: [string, string, string][]) {
+    await seedKid(u, `流程${u}`);
+    await seedCurriculumUnit(unitId, unitId % 100, 1);
+    for (let i = 0; i < senses.length; i++) {
+      const [sid, term, meaning] = senses[i];
+      await seedSenseT7(sid, term, meaning);
+      await linkSenseT7(unitId, sid, i + 1);
+    }
+    await openUnitT7(unitId);
+    const opened = await json(await openDaily(u)) as any;
+    expect(opened.items).toHaveLength(senses.length);
+    return opened as { day: string; limit: number; items: { id: number; senseId: string; status: string }[] };
+  }
+
+  const postAnswer = (body: Record<string, unknown>) =>
+    SELF.fetch("https://example.com/api/daily/answer", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("open → spell 对 → 再 open：同一份清单（同条目 ID），该条 status='done'（服务端权威）", async () => {
+    const opened = await setupDaily(560, 820, [
+      ["t7-flow-a@1", "flowa", "流程词甲"],
+      ["t7-flow-b@1", "flowb", "流程词乙"],
+    ]);
+    const itemId = opened.items[0].id;
+    const ans = await postAnswer({ userId: 560, itemId, eventId: "t7-flow-evt-1", action: "spell", answer: "flowa" });
+    expect(ans.status).toBe(200);
+    const verdict = await json(ans) as any;
+    expect(verdict.applied).toBe(true);
+    expect(verdict.item.status).toBe("done");
+
+    const reopened = await json(await openDaily(560)) as any;
+    expect(reopened.day).toBe(opened.day);
+    expect(reopened.items.map((i: any) => i.id)).toEqual(opened.items.map((i: any) => i.id));
+    expect(reopened.items.find((i: any) => i.id === itemId).status).toBe("done");
+    expect(reopened.items.find((i: any) => i.id === opened.items[1].id).status).toBe("pending");
+  });
+
+  it("spell 错 → status='correction' → 订正对 → 'done'；首次评级恰好一条", async () => {
+    const opened = await setupDaily(561, 821, [["t7-flow-c@1", "flowc", "订正词"]]);
+    const itemId = opened.items[0].id;
+    const wrong = await json(await postAnswer({ userId: 561, itemId, eventId: "t7-flow-evt-2", action: "spell", answer: "nope" })) as any;
+    expect(wrong.item.status).toBe("correction");
+    expect(wrong.rating).toBe("Again");
+
+    const fix = await json(await postAnswer({ userId: 561, itemId, eventId: "t7-flow-evt-3", action: "spell", answer: "flowc" })) as any;
+    expect(fix.item.status).toBe("done");
+    expect(fix.rating).toBeNull(); // 订正不评级
+    expect(fix.starsAwarded).toBe(0);
+
+    const evs = await env.DB.prepare(
+      "SELECT rating FROM answer_events WHERE item_id=?"
+    ).bind(itemId).all<{ rating: string | null }>();
+    expect(evs.results.filter((e) => e.rating !== null)).toHaveLength(1);
+  });
+
+  it("加练（/api/review sense 路径）不完成每日条目、不改 due、不写 user_cards、不写每日评级", async () => {
+    const opened = await setupDaily(562, 822, [["t7-flow-d@1", "flowd", "加练边界词"]]);
+    const itemId = opened.items[0].id;
+    // 先完成每日条目，建立 user_card
+    expect((await postAnswer({ userId: 562, itemId, eventId: "t7-flow-evt-4", action: "spell", answer: "flowd" })).status).toBe(200);
+    const cardBefore = await env.DB.prepare(
+      "SELECT due_at, card_json FROM user_cards WHERE user_id=562 AND sense_id='t7-flow-d@1'"
+    ).first<{ due_at: number; card_json: string }>();
+    expect(cardBefore).not.toBeNull();
+
+    // 同一 sense 自主加练：答错再答对，均走 /review
+    const p1 = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: 562, senseId: "t7-flow-d@1", eventId: "t7-flow-prac-1", correct: false, source: "unit", answer: "oops" }),
+    });
+    expect(p1.status).toBe(200);
+    const p2 = await SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: 562, senseId: "t7-flow-d@1", eventId: "t7-flow-prac-2", correct: true, source: "unit" }),
+    });
+    expect(p2.status).toBe(200);
+
+    // 每日条目不受影响：仍 done、首次事件不变
+    const reopened = await json(await openDaily(562)) as any;
+    expect(reopened.items[0].status).toBe("done");
+    const cardAfter = await env.DB.prepare(
+      "SELECT due_at, card_json FROM user_cards WHERE user_id=562 AND sense_id='t7-flow-d@1'"
+    ).first<{ due_at: number; card_json: string }>();
+    expect(cardAfter).toEqual(cardBefore); // 加练不改 due（FSRS 只由每日作答推进）
+
+    // 加练事件不产生每日评级，且不入错词本
+    const rated = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM answer_events WHERE sense_id='t7-flow-d@1' AND rating IS NOT NULL"
+    ).first<{ n: number }>();
+    expect(rated?.n).toBe(1); // 只有每日首次作答那一条 Good
+    const mistakes = await json(await SELF.fetch("https://example.com/api/mistakes?user_id=562")) as any[];
+    expect(mistakes).toEqual([]); // 加练答错（source=unit）不进错词本
+  });
+});
+
+describe("kid: /api/review sense 加练路径（练习日志）", () => {
+  beforeAll(async () => { await applySchema(); });
+
+  const practice = (body: Record<string, unknown>) =>
+    SELF.fetch("https://example.com/api/review", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("答对加练：写 answer_events(source/rating NULL)、发星星、不写 user_cards/user_word_state/wrong_answer_events", async () => {
+    const u = 563;
+    await seedKid(u, "加练对");
+    await seedSenseT7("t7-pr-a@1", "practica", "加练词甲", ["practica"]);
+    const res = await practice({ userId: u, senseId: "t7-pr-a@1", eventId: "t7-pr-evt-1", correct: true, source: "unit" });
+    const data = await json(res) as any;
+    expect(res.status).toBe(200);
+    expect(data).toMatchObject({ eventId: "t7-pr-evt-1", applied: true, correct: true, starsAwarded: 1 });
+    expect(data.stars).toBe(1);
+
+    const ev = await env.DB.prepare(
+      "SELECT source, action, rating, card_before_json, card_after_json, item_id, correct FROM answer_events WHERE event_id='t7-pr-evt-1'"
+    ).first<any>();
+    expect(ev).toMatchObject({ source: "unit", action: "spell", rating: null, card_before_json: null, card_after_json: null, item_id: null, correct: 1 });
+    expect(await env.DB.prepare("SELECT sense_id FROM user_cards WHERE user_id=?").bind(u).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT word_id FROM user_word_state WHERE user_id=?").bind(u).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT id FROM wrong_answer_events WHERE user_id=?").bind(u).first()).toBeNull();
+  });
+
+  it("答错加练：answer 归一存储（trim+小写，截断 100）；source 必须为 unit/mistake", async () => {
+    const u = 564;
+    await seedKid(u, "加练错");
+    await seedSenseT7("t7-pr-b@1", "practicb", "加练词乙", ["practicb"]);
+    const long = "b".repeat(150);
+    const res = await practice({ userId: u, senseId: "t7-pr-b@1", eventId: "t7-pr-evt-2", correct: false, source: "mistake", answer: `  ${long}  ` });
+    expect(res.status).toBe(200);
+    const ev = await env.DB.prepare(
+      "SELECT answer, source, rating FROM answer_events WHERE event_id='t7-pr-evt-2'"
+    ).first<any>();
+    expect((ev!.answer as string).length).toBe(100);
+    expect(ev!.source).toBe("mistake");
+    expect(ev!.rating).toBeNull();
+
+    // source='daily' 由每日流程独占：加练通道不得伪造每日作答
+    const forged = await practice({ userId: u, senseId: "t7-pr-b@1", eventId: "t7-pr-evt-3", correct: true, source: "daily" });
+    expect(forged.status).toBe(400);
+    const other = await practice({ userId: u, senseId: "t7-pr-b@1", eventId: "t7-pr-evt-4", correct: true, source: "cheat" });
+    expect(other.status).toBe(400);
+  });
+
+  it("同 eventId 重发返回原结果且不重复计分；跨用户 eventId 冲突 409 且零写入", async () => {
+    const a = 565, b = 566;
+    await seedKid(a, "加练幂甲");
+    await seedKid(b, "加练幂乙");
+    await seedSenseT7("t7-pr-c@1", "practicc", "加练词丙", ["practicc"]);
+    await seedSenseT7("t7-pr-d@1", "practicd", "加练词丁", ["practicd"]);
+
+    const first = await json(await practice({ userId: a, senseId: "t7-pr-c@1", eventId: "t7-pr-evt-shared", correct: true, source: "unit" })) as any;
+    expect(first.applied).toBe(true);
+
+    // 同用户同事件重发：原结果回放，无新增事件、无重复星星
+    const replay = await json(await practice({ userId: a, senseId: "t7-pr-c@1", eventId: "t7-pr-evt-shared", correct: true, source: "unit" })) as any;
+    expect(replay).toEqual(first);
+    const starsA = await env.DB.prepare("SELECT stars FROM user_stats WHERE user_id=?").bind(a).first<{ stars: number }>();
+    expect(starsA?.stars).toBe(1);
+    const cnt = await env.DB.prepare("SELECT COUNT(*) AS n FROM answer_events WHERE event_id='t7-pr-evt-shared'").first<{ n: number }>();
+    expect(cnt?.n).toBe(1);
+
+    // 跨用户碰撞（ eventId 全局 PK）：后到者 409 零写入
+    const clash = await practice({ userId: b, senseId: "t7-pr-d@1", eventId: "t7-pr-evt-shared", correct: true, source: "mistake" });
+    expect(clash.status).toBe(409);
+    expect(await env.DB.prepare("SELECT sense_id FROM answer_events WHERE event_id='t7-pr-evt-shared'").first<{ sense_id: string }>())
+      .toMatchObject({ sense_id: "t7-pr-c@1" });
+    expect(await env.DB.prepare("SELECT event_id FROM answer_events WHERE user_id=?").bind(b).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT stars FROM user_stats WHERE user_id=?").bind(b).first()).toBeNull();
+  });
+
+  it("参数校验：缺字段/坏类型 400；未知 sense 或用户 404", async () => {
+    const u = 567;
+    await seedKid(u, "加练校验");
+    await seedSenseT7("t7-pr-e@1", "practice", "加练词戊", ["practice"]);
+    const base = { userId: u, senseId: "t7-pr-e@1", eventId: "t7-pr-evt-ok", correct: true, source: "unit" };
+    const badBodies = [
+      {},
+      { ...base, userId: 0 },
+      { ...base, userId: 1.5 },
+      { ...base, senseId: "" },
+      { ...base, senseId: 42 },
+      { ...base, eventId: "" },
+      { ...base, eventId: "x".repeat(101) },
+      { ...base, correct: "true" },
+      { ...base, source: 7 },
+    ];
+    for (const body of badBodies) {
+      const res = await practice(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await practice({ ...base, senseId: "ghost@1" })).status).toBe(404);
+    expect((await practice({ ...base, userId: 424242 })).status).toBe(404);
+    // 校验路径零写入
+    expect(await env.DB.prepare("SELECT event_id FROM answer_events WHERE user_id=?").bind(u).first()).toBeNull();
+    // 本人正常提交仍可用
+    const ok = await practice({ ...base, eventId: "t7-pr-evt-real" });
+    expect(ok.status).toBe(200);
   });
 });
 
@@ -858,7 +1231,7 @@ describe("kid: SRS state updates are atomic (B1 concurrency)", () => {
 describe("json body guard (B5)", () => {
   beforeAll(async () => { await applySchema(); });
   const endpoints = [
-    "/api/cover", "/api/session/unit", "/api/admin/units",
+    "/api/cover", "/api/admin/units",
     "/api/admin/import", "/api/admin/reset-progress",
   ];
   for (const ep of endpoints) {
