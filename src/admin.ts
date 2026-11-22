@@ -8,6 +8,57 @@ import { parseJsonBody } from "./http";
 const admin = new Hono<{ Bindings: Env }>();
 admin.use("*", adminAuth);
 
+admin.get("/curriculum", async (c) => {
+  const db = c.env.DB;
+  const [units, quotas] = await Promise.all([
+    db.prepare(`SELECT u.id, u.book, u.book_title, u.unit, p.unit_id IS NOT NULL AS open
+      FROM curriculum_units u LEFT JOIN pool_units p ON p.unit_id = u.id
+      ORDER BY u.book_order, u.book, u.unit`).all<{
+        id: number; book: string; book_title: string; unit: number; open: number;
+      }>(),
+    db.prepare(`SELECT u.id AS userId, u.name, COALESCE(q.daily_limit, 10) AS "limit"
+      FROM users u LEFT JOIN user_quotas q ON u.id = q.user_id ORDER BY u.id`).all(),
+  ]);
+  const books = new Map<string, { book: string; title: string; units: { id: number; unit: number; open: boolean }[] }>();
+  for (const row of units.results) {
+    const book = books.get(row.book) ?? { book: row.book, title: row.book_title, units: [] };
+    book.units.push({ id: row.id, unit: row.unit, open: Boolean(row.open) });
+    books.set(row.book, book);
+  }
+  return c.json({ books: [...books.values()], quotas: quotas.results });
+});
+
+admin.post("/pool", async (c) => {
+  const body = await parseJsonBody<{unitIds: number[]}>(c);
+  if (!Array.isArray(body?.unitIds) || !body.unitIds.length ||
+      !body.unitIds.every(id => Number.isSafeInteger(id) && id > 0)) {
+    return c.json({ error: "请选择有效单元" }, 400);
+  }
+  const ids = JSON.stringify([...new Set(body.unitIds)]);
+  const db = c.env.DB;
+  // D1 batch 共用一个事务。整批齐全才写入，重复加入不改变状态。
+  const valid = "SELECT NOT EXISTS (SELECT value FROM json_each(?1) EXCEPT SELECT id FROM curriculum_units) AS ok";
+  const [check] = await db.batch<{ok: number}>([
+    db.prepare(valid).bind(ids),
+    db.prepare(`INSERT OR IGNORE INTO pool_units(unit_id)
+      SELECT value FROM json_each(?1) WHERE (${valid})`).bind(ids),
+  ]);
+  if (!check.results[0].ok) return c.json({ error: "所选单元不存在" }, 400);
+  return c.json({ ok: true });
+});
+
+admin.put("/quota", async (c) => {
+  const body = await parseJsonBody<{userId: number; limit: number}>(c);
+  if (!body || !Number.isSafeInteger(body.userId) || body.userId <= 0 ||
+      ![10,15,20].includes(body.limit)) return c.json({ error: "孩子或每日配额无效" }, 400);
+  const result = await c.env.DB.prepare(`INSERT INTO user_quotas(user_id,daily_limit)
+    SELECT id, ? FROM users WHERE id = ?
+    ON CONFLICT(user_id) DO UPDATE SET daily_limit = excluded.daily_limit`)
+    .bind(body.limit, body.userId).run();
+  if (!result.meta.changes) return c.json({ error: "孩子不存在" }, 400);
+  return c.json({ ok: true });
+});
+
 admin.get("/units", async (c) => {
   const { results } = await c.env.DB.prepare(
     "SELECT id, book, unit, sort_key FROM units ORDER BY sort_key, id"

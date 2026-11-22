@@ -32,8 +32,61 @@ function loginView(msg) {
   render(card);
 }
 
+function poolPanel({books, quotas}) {
+  const panel = $(`<section><h2>共享学习池</h2><p class="summary"></p>
+    <label>选择教材 <select class="books"></select></label>
+    <fieldset><legend>选择要开放的单元（可多选）</legend><div class="units"></div></fieldset>
+    <button class="big add">加入共享池</button><p role="status" class="result"></p>
+    <h2>个人每日配额</h2><p>从下一份每日清单起生效。</p><div class="quotas"></div></section>`);
+  const select = panel.querySelector(".books");
+  const add = panel.querySelector(".add");
+  const result = panel.querySelector(".result");
+  const unitName = u => u.unit === 0 ? "Starter" : `Unit ${u.unit}`;
+  books.forEach((b,i) => select.add(new Option(b.title, i)));
+  function draw() {
+    const open = books.flatMap(b => b.units.filter(u => u.open).map(u => `${b.title} · ${unitName(u)}`));
+    panel.querySelector(".summary").textContent = open.length ? `已加入：${open.join("、")}` : "共享池为空，请选择单元加入。";
+    panel.querySelector(".units").innerHTML = (books[select.selectedIndex]?.units ?? []).map(u =>
+      `<label><input type="checkbox" value="${u.id}" ${u.open ? "checked disabled" : ""}> ${unitName(u)}${u.open ? "（已加入）" : ""}</label>`).join(" ");
+    add.disabled = true;
+  }
+  const selected = () => [...panel.querySelectorAll(".units input:checked:not(:disabled)")];
+  panel.querySelector(".units").onchange = () => { add.disabled = !selected().length; };
+  select.onchange = draw;
+  add.onclick = async () => {
+    const book = books[select.selectedIndex];
+    const unitIds = selected().map(el => Number(el.value));
+    panel.querySelector("fieldset").disabled = select.disabled = add.disabled = true;
+    try {
+      await api("/pool", {method:"POST",body:JSON.stringify({unitIds})});
+      book.units.forEach(u => { if (unitIds.includes(u.id)) u.open = true; });
+      draw();
+      result.textContent = `已加入 ${unitIds.length} 个单元。`;
+    } catch (e) { result.textContent = e.message; add.disabled = false; }
+    finally { panel.querySelector("fieldset").disabled = select.disabled = false; }
+  };
+  draw();
+  for (const q of quotas) {
+    const row = $(`<label>${esc(q.name)} <select></select></label>`);
+    const limit = row.querySelector("select");
+    [10,15,20].forEach(n => limit.add(new Option(`每天 ${n} 个`, n)));
+    limit.value = q.limit;
+    limit.onchange = async () => {
+      limit.disabled = true;
+      try {
+        await api("/quota",{method:"PUT",body:JSON.stringify({userId:q.userId,limit:Number(limit.value)})});
+        q.limit = Number(limit.value);
+        result.textContent = `${q.name}的每日配额已保存。`;
+      } catch (e) { limit.value = q.limit; result.textContent = e.message; }
+      finally { limit.disabled = false; }
+    };
+    panel.querySelector(".quotas").append(row);
+  }
+  return panel;
+}
+
 async function dashboard(flash) {
-  const [units, words, progress] = await Promise.all([api("/units"), api("/words"), api("/progress")]);
+  const [curriculum, units, words, progress] = await Promise.all([api("/curriculum"), api("/units"), api("/words"), api("/progress")]);
   const wrap = $(`<section>
     <header class="top"><h1>家长后台</h1><button class="link" id="out">退出</button></header>
     <h2>进度</h2><div id="prog"></div>
@@ -66,6 +119,7 @@ async function dashboard(flash) {
       </div>
     </div>
   </section>`);
+  wrap.querySelector("header").after(poolPanel(curriculum));
   wrap.querySelector("#out").onclick = () => { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(); };
   wrap.querySelector("#prog").innerHTML = progress.map(u =>
     `<div class="stat">${esc(u.avatar)} ${esc(u.name)} — ⭐${u.stars} 🔥${u.streak_days} 已掌握${u.mastered}</div>`).join("");
