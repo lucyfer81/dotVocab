@@ -140,10 +140,16 @@ WHERE i.id = ?`;
 // 把 first_event_id 钉成本事件。单条 UPDATE 原子（SQLite 单写者串行化），
 // meta.changes>0 即唯一胜者。first_event_id IS NULL 与 status='pending' 互为
 // 等价不变量（该列仅由本语句写入），双条件是主代理要求的防御性加固。
+// 跨用户事件守卫（审阅 Important-1）：event_id 是全局 PK，若本请求的 eventId
+// 已被其他孩子的作答持久化（客户端可碰撞值），抢占必须失配——否则胜者独占期
+// 的 INSERT 撞 PK → 500 + 已抢占未落库悬挂态。命中守卫即按落选零写入处理。
 const CLAIM_FIRST_SQL = `
 UPDATE daily_items
 SET status = ?, first_event_id = ?
 WHERE id = ? AND status = 'pending' AND first_event_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM answer_events WHERE event_id = ? AND user_id <> ?
+  )
   AND EXISTS (
     SELECT 1 FROM daily_lists h
     WHERE h.id = daily_items.list_id AND h.user_id = ? AND h.study_date = ?
@@ -178,10 +184,14 @@ ON CONFLICT (user_id) DO UPDATE SET
   last_play_date = excluded.last_play_date`;
 
 // 订正推进：条目仍为 correction 且归属+当日才把条目推到 done；first_event_id 不动。
+// 跨用户事件守卫同 CLAIM_FIRST（审阅 Important-1）。
 const CLAIM_CORRECTION_DONE_SQL = `
 UPDATE daily_items
 SET status = 'done'
 WHERE id = ? AND status = 'correction'
+  AND NOT EXISTS (
+    SELECT 1 FROM answer_events WHERE event_id = ? AND user_id <> ?
+  )
   AND EXISTS (
     SELECT 1 FROM daily_lists h
     WHERE h.id = daily_items.list_id AND h.user_id = ? AND h.study_date = ?
@@ -189,10 +199,14 @@ WHERE id = ? AND status = 'correction'
 
 // 订正保持：确认条目仍为 correction（自等值 UPDATE，meta.changes>0 即仍可订正），
 // 随后才记录失败订正事件，防止对已完成条目留下语义失真的订正日志。
+// 跨用户事件守卫同 CLAIM_FIRST（审阅 Important-1）。
 const KEEP_CORRECTION_SQL = `
 UPDATE daily_items
 SET status = 'correction'
 WHERE id = ? AND status = 'correction'
+  AND NOT EXISTS (
+    SELECT 1 FROM answer_events WHERE event_id = ? AND user_id <> ?
+  )
   AND EXISTS (
     SELECT 1 FROM daily_lists h
     WHERE h.id = daily_items.list_id AND h.user_id = ? AND h.study_date = ?
@@ -304,7 +318,7 @@ export async function submitDailyAnswer(
       starsAwarded: correct ? 1 : 0,
     };
     const claim = await db.prepare(CLAIM_FIRST_SQL)
-      .bind(newStatus, eventId, itemId, userId, day).run();
+      .bind(newStatus, eventId, itemId, eventId, userId, userId, day).run();
     if ((claim.meta.changes ?? 0) > 0) {
       // 唯一胜者：条目永远离开 pending，以下写入不受任何并发干扰。
       const stmts = [
@@ -332,7 +346,7 @@ export async function submitDailyAnswer(
   const correct = judge(input.action, normalizedAnswer, item.acceptedJson);
   if (correct) {
     const claim = await db.prepare(CLAIM_CORRECTION_DONE_SQL)
-      .bind(itemId, userId, day).run();
+      .bind(itemId, eventId, userId, userId, day).run();
     if ((claim.meta.changes ?? 0) > 0) {
       const result: DailyAnswerResult = {
         eventId,
@@ -354,7 +368,7 @@ export async function submitDailyAnswer(
     }
   } else {
     const keep = await db.prepare(KEEP_CORRECTION_SQL)
-      .bind(itemId, userId, day).run();
+      .bind(itemId, eventId, userId, userId, day).run();
     if ((keep.meta.changes ?? 0) > 0) {
       const result: DailyAnswerResult = {
         eventId,

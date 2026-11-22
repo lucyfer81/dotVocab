@@ -391,6 +391,62 @@ describe("每日作答 POST /api/daily/answer", () => {
     expect(finalStatus === "done" || finalStatus === "correction").toBe(true);
   });
 
+  it("跨用户 eventId 碰撞：后到者 applied=false 零写入，不 500 不悬挂", async () => {
+    const a = 311, b = 312;
+    await seedUser(a, "碰撞甲");
+    await seedUser(b, "碰撞乙");
+    await seedSense("s-da-cl-a@1", "collidea", "甲词", ["collidea"]);
+    await seedSense("s-da-cl-b@1", "collideb", "乙词", ["collideb"]);
+    const listA = await seedList(a, dayStr(Date.now()));
+    const itemA = await seedItem(listA, "s-da-cl-a@1", 0, "new");
+    const listB = await seedList(b, dayStr(Date.now()));
+    const itemB = await seedItem(listB, "s-da-cl-b@1", 0, "new");
+
+    // A 用 evX 正常完成自己的条目
+    const dA = await answerJson(await answer({ userId: a, itemId: itemA, eventId: "evt-collide", action: "spell", answer: "collidea" }));
+    expect(dA.applied).toBe(true);
+
+    // B 撞用 evX 提交自己的 pending 条目：跨用户事件守卫拦截 → 落选零写入，无 500
+    const dB = await answerJson(await answer({ userId: b, itemId: itemB, eventId: "evt-collide", action: "spell", answer: "collideb" }));
+    expect(dB.applied).toBe(false);
+    expect(dB.stage).toBe("first");
+    expect(dB.item.status).toBe("pending");
+    expect(dB.starsAwarded).toBe(0);
+
+    // B 的条目零写入、无悬挂态
+    const bItem = await itemOf(itemB);
+    expect(bItem!.status).toBe("pending");
+    expect(bItem!.first_event_id).toBeNull();
+    expect(await eventsForItem(itemB)).toHaveLength(0);
+    expect(await cardOf(b, "s-da-cl-b@1")).toBeNull();
+    expect(await statsOf(b)).toBeNull();
+
+    // evX 唯一且归属 A；A 的进度不被触碰
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM answer_events WHERE event_id='evt-collide'").first<number>("n")).toBe(1);
+    expect((await itemOf(itemA))!.first_event_id).toBe("evt-collide");
+    expect((await itemOf(itemA))!.status).toBe("done");
+    expect((await statsOf(a))!.stars).toBe(1);
+
+    // 订正路径同样防护：B 先答错进入 correction，再撞用 evX 订正 → 落选保持 correction
+    const dWrong = await answerJson(await answer({ userId: b, itemId: itemB, eventId: "evt-collide-b1", action: "spell", answer: "nope" }));
+    expect(dWrong.applied).toBe(true);
+    expect(dWrong.item.status).toBe("correction");
+    const cardB = await cardOf(b, "s-da-cl-b@1");
+    const dB2 = await answerJson(await answer({ userId: b, itemId: itemB, eventId: "evt-collide", action: "spell", answer: "collideb" }));
+    expect(dB2.applied).toBe(false);
+    expect(dB2.stage).toBe("correction");
+    expect(dB2.item.status).toBe("correction");
+    expect(dB2.starsAwarded).toBe(0);
+    // B 的首次事件仍是唯一记录；卡与条目状态不被订正碰撞触碰
+    const evsB = await eventsForItem(itemB);
+    expect(evsB).toHaveLength(1);
+    expect(evsB[0].event_id).toBe("evt-collide-b1");
+    expect((await itemOf(itemB))!.first_event_id).toBe("evt-collide-b1");
+    expect((await itemOf(itemB))!.status).toBe("correction");
+    expect(await cardOf(b, "s-da-cl-b@1")).toEqual(cardB);
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM answer_events WHERE event_id='evt-collide'").first<number>("n")).toBe(1);
+  });
+
   it("过上海午夜迟交返回 409 且无任何副作用；当天也不能补交昨日清单", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-25T22:00:00+08:00"));
