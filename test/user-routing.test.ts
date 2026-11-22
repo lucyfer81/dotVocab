@@ -7,7 +7,7 @@ const users = [
 ];
 
 describe("slugFromPath", () => {
-  it.each([["/xct", "xct"], ["/xct/", "xct"], ["/XCT", "xct"], ["/", ""], ["", ""], ["/foo/bar", "foo/bar"]])
+  it.each([["/xct", "xct"], ["/xct/", "xct"], ["/XCT", "xct"], ["/", ""], ["", ""], ["/foo/bar", "foo/bar"], ["//xct//", "xct"]])
     ("%s -> %s", (path, want) => expect(slugFromPath(path)).toBe(want));
 });
 
@@ -23,6 +23,12 @@ describe("nameForSlug", () => {
     expect(nameForSlug("xtc")).toBeNull();
     expect(nameForSlug("")).toBeNull();
     expect(nameForSlug("foo/bar")).toBeNull();
+  });
+  it("returns null for prototype chain property names, not inherited values", () => {
+    // NAME_BY_SLUG["constructor"] 在原型链上存在（Object 构造函数），必须识别为未知
+    expect(nameForSlug("constructor")).toBeNull();
+    expect(nameForSlug("toString")).toBeNull();
+    expect(nameForSlug("hasOwnProperty")).toBeNull();
   });
 });
 

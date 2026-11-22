@@ -12,9 +12,11 @@ export function slugFromPath(pathname) {
   return String(pathname ?? "").replace(/^\/+|\/+$/g, "").toLowerCase();
 }
 
-// "xct" -> "哥哥"；未知代号（含空串、多级路径）-> null
+// "xct" -> "哥哥"；未知代号（含空串、多级路径、原型链属性名）-> null
 export function nameForSlug(slug) {
-  return NAME_BY_SLUG[String(slug ?? "").trim().toLowerCase()] ?? null;
+  const key = String(slug ?? "").trim().toLowerCase();
+  // hasOwnProperty.call：挡住 constructor/toString 等原型链继承名被误判为已知代号
+  return Object.prototype.hasOwnProperty.call(NAME_BY_SLUG, key) ? NAME_BY_SLUG[key] : null;
 }
 
 // 代号解析到具体用户：名字全等匹配；名字不存在或找不到 -> null
