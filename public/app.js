@@ -351,7 +351,7 @@ async function startSession({ mode, unit_id, title }) {
 
 // ---------- boot ----------
 (async function boot() {
-  localStorage.removeItem("dotvocab_user"); // 清旧版记忆残留，URL 是身份的唯一来源
+  try { localStorage.removeItem("dotvocab_user"); } catch {} // 清旧版记忆残留，尽力而为：清理失败不挡路（旧版 Safari 隐私模式等会抛异常）
   try {
     // 未知代号（打错字、多级路径）宽容回选择页；已知代号但数据库对不上才报错
     const slug = slugFromPath(location.pathname);
