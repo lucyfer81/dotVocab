@@ -248,8 +248,8 @@ describe("每日作答 POST /api/daily/answer", () => {
 
     // 卡片不被订正改写
     expect(await cardOf(u, "s-da-fix@1")).toEqual(cardAfterFirst);
-    // 不为订正加星：全程无星星写入
-    expect(await statsOf(u)).toBeNull();
+    // 订正不加星、不碰连击：星星保持 0；首次 Again 已按裁决记录学习日（starDelta=0 续连击）
+    expect(await statsOf(u)).toEqual({ stars: 0, streak_days: 1, last_play_date: dayStr(Date.now()) });
 
     // 事件审计：只有一条 Again（首次），订正事件无评级、无卡片前后状态
     const evs = await eventsForItem(itemId);
@@ -299,10 +299,10 @@ describe("每日作答 POST /api/daily/answer", () => {
     expect(d3.rating).toBeNull();
     expect(d3.item.status).toBe("correction");
 
-    // 卡片始终是首次那一份；first_event_id 不变；无星星
+    // 卡片始终是首次那一份；first_event_id 不变；星星保持 0（首次 Again 已记学习日，订正各步不碰）
     expect(await cardOf(u, "s-da-cw@1")).toEqual(cardAfterFirst);
     expect((await itemOf(itemId))!.first_event_id).toBe("evt-cw-1");
-    expect(await statsOf(u)).toBeNull();
+    expect(await statsOf(u)).toEqual({ stars: 0, streak_days: 1, last_play_date: dayStr(Date.now()) });
 
     // 事件：1 条首次 Again + 2 条订正失败（correct=0 且无评级），无重复评级
     const evs = await eventsForItem(itemId);
@@ -341,7 +341,8 @@ describe("每日作答 POST /api/daily/answer", () => {
     const card = await cardOf(u, "s-da-reveal@1");
     expect(card!.card_json.startsWith("fsrs-v1:")).toBe(true);
     expect(card!.card_json).toBe(ev!.card_after_json);
-    expect(await statsOf(u)).toBeNull();
+    // reveal 首次看答案也按 Again 记学习日：星 0、连击续上
+    expect(await statsOf(u)).toEqual({ stars: 0, streak_days: 1, last_play_date: dayStr(Date.now()) });
   });
 
   it("两台设备并发相反答案：只产生一次评级，星星只按首次作答发", async () => {

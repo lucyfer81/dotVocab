@@ -170,10 +170,11 @@ ON CONFLICT (user_id, sense_id) DO UPDATE SET
   card_json = excluded.card_json`;
 
 // 星星/连续学习天数：与 kid.ts applyReviewStats 相同的原子 UPSERT 语义
-// （today/yesterday 用上海日），与旧 /review 并发写同表安全。
+// （starDelta 参数化：答对 +1、答错 0——答错也记录学习日并续连击，三通道一致；
+// today/yesterday 用上海日），与旧 /review 并发写同表安全。
 const UPSERT_STATS_SQL = `
 INSERT INTO user_stats (user_id, stars, streak_days, last_play_date)
-VALUES (?, 1, 1, ?)
+VALUES (?, ?, 1, ?)
 ON CONFLICT (user_id) DO UPDATE SET
   stars = user_stats.stars + excluded.stars,
   streak_days = CASE
@@ -328,9 +329,11 @@ export async function submitDailyAnswer(
         ),
         db.prepare(UPSERT_CARD_SQL).bind(userId, item.senseId, after.dueMs, after.state),
       ];
-      if (correct) {
-        stmts.push(db.prepare(UPSERT_STATS_SQL).bind(userId, day, dayStr(nowMs - 86_400_000)));
-      }
+      // 星星/连击：答对 +1 星；答错 starDelta=0——仅更新 last_play_date/连击
+      // （主代理裁决：与旧 /review、加练通道语义一致；全错日订正也是"学习了"，
+      // 连击归零传达错误激励）。胜者独占期内无条件写入。
+      stmts.push(db.prepare(UPSERT_STATS_SQL)
+        .bind(userId, correct ? 1 : 0, day, dayStr(nowMs - 86_400_000)));
       await db.batch(stmts);
       return { ok: true, result };
     }

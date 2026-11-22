@@ -20,7 +20,9 @@
 //      可忽略，服务端另有归属校验与跨用户守卫兜底）
 // 三层输出统一为 36 位 v4 形状（8-4-4-4-12 含连字符），eventId 总长 ≤100。
 function randomUuid() {
-  const c = globalThis.crypto;
+  // Safari < 12.2 无 globalThis：直接访问抛 ReferenceError（不是 undefined）——
+  // typeof 守卫先行，globalThis 或 crypto 缺失时直接落向下层回退链（审阅 M-d）。
+  const c = typeof globalThis === "undefined" ? undefined : globalThis.crypto;
   if (c && typeof c.randomUUID === "function") {
     try {
       return c.randomUUID();

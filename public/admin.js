@@ -122,7 +122,7 @@ async function dashboard(flash) {
   wrap.querySelector("header").after(poolPanel(curriculum));
   wrap.querySelector("#out").onclick = () => { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(); };
   wrap.querySelector("#prog").innerHTML = progress.map(u =>
-    `<div class="stat">${esc(u.avatar)} ${esc(u.name)} — ⭐${u.stars} 🔥${u.streak_days} 已掌握${u.mastered}</div>`).join("");
+    `<div class="stat">${esc(u.avatar)} ${esc(u.name)} — ⭐${u.stars} 🔥${u.streak_days} 已学词${u.mastered}</div>`).join("");
   const sel = wrap.querySelector("#target");
   units.forEach(u => { const o=document.createElement("option"); o.value=u.id; o.textContent=`${u.book} · ${u.unit}`; sel.appendChild(o); });
   wrap.querySelector("#addunit").onclick = async () => {
@@ -181,7 +181,7 @@ async function dashboard(flash) {
       title: "重置进度",
       message: deep
         ? `确定深度重置「${targetLabel}」的 ${userLabel} 吗？\n单元覆盖记录、范围内单词的掌握度将清除，星星与连击全部归零，单词回到新词状态。`
-        : `确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度吗？\n相关单词会重新出现；已掌握度与星星保留。`,
+        : `确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度吗？\n相关单词会重新出现；已学词与星星保留。`,
       okText: "确认重置",
       danger: true,
     })) return;

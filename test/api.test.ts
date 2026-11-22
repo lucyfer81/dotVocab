@@ -818,6 +818,98 @@ describe("admin: reset-progress", () => {
     expect(stats?.stars).toBe(0);
     expect(stats?.streak_days).toBe(0);
   });
+
+  it("deep+global 同时清新世界表（user_cards/daily_lists→级联 daily_items/answer_events）；另一孩子与共享池/教材/配额原样", async () => {
+    await env.DB.prepare(
+      "INSERT INTO users (id, name, avatar) VALUES (909,'重置新世甲','🧪'),(910,'重置新世乙','🧪')"
+    ).run();
+    // 教材/共享池夹具（独立 id 段，不与任务 7 夹具相撞）
+    await env.DB.prepare(
+      "INSERT INTO curriculum_units (id, book, book_title, book_order, unit) VALUES (951,'重置册','换库重置册',40,1)"
+    ).run();
+    await env.DB.prepare(
+      "INSERT INTO curriculum_senses (sense_id, term, meaning, accepted_json) VALUES " +
+        "('s-rst-a@1','reseta','重置词甲','[\"reseta\"]'),('s-rst-b@1','resetb','重置词乙','[\"resetb\"]')"
+    ).run();
+    await env.DB.prepare("INSERT INTO curriculum_unit_senses VALUES (951,'s-rst-a@1',1),(951,'s-rst-b@1',2)").run();
+    await env.DB.prepare("INSERT INTO pool_units VALUES (951)").run();
+    await env.DB.prepare("INSERT INTO user_quotas (user_id, daily_limit) VALUES (909,15),(910,20)").run();
+
+    // 两个孩子各一套新世界进度：FSRS 卡、当日清单+条目、每日作答事件；孩子 1 另有加练事件（item_id NULL）
+    const l1 = await env.DB.prepare(
+      "INSERT INTO daily_lists (user_id, study_date, daily_limit, generation_token) VALUES (909,'2026-11-23',15,'tok-rst-1') RETURNING id"
+    ).first<{ id: number }>();
+    const i1 = await env.DB.prepare(
+      "INSERT INTO daily_items (list_id, sense_id, position, kind, status, first_event_id) VALUES (?,'s-rst-a@1',0,'new','done','evt-rst-1') RETURNING id"
+    ).bind(l1!.id).first<{ id: number }>();
+    await env.DB.prepare("INSERT INTO user_cards VALUES (909,'s-rst-a@1',123,'{}')").run();
+    await env.DB.prepare(
+      "INSERT INTO answer_events (event_id,user_id,sense_id,item_id,source,action,answer,correct,created_at,rating) VALUES ('evt-rst-1',909,'s-rst-a@1',?,'daily','spell','reseta',1,1,'Good')"
+    ).bind(i1!.id).run();
+    await env.DB.prepare(
+      "INSERT INTO answer_events (event_id,user_id,sense_id,item_id,source,action,answer,correct,created_at) VALUES ('evt-rst-p1',909,'s-rst-b@1',NULL,'mistake','spell','oops',0,1)"
+    ).run();
+    await env.DB.prepare("INSERT INTO user_word_state (user_id, word_id, reps) VALUES (909, 1, 4)").run();
+    await env.DB.prepare("INSERT INTO user_stats (user_id, stars, streak_days, last_play_date) VALUES (909, 8, 2, '2026-11-23')").run();
+
+    const l2 = await env.DB.prepare(
+      "INSERT INTO daily_lists (user_id, study_date, daily_limit, generation_token) VALUES (910,'2026-11-23',20,'tok-rst-2') RETURNING id"
+    ).first<{ id: number }>();
+    const i2 = await env.DB.prepare(
+      "INSERT INTO daily_items (list_id, sense_id, position, kind) VALUES (?,'s-rst-b@1',0,'new') RETURNING id"
+    ).bind(l2!.id).first<{ id: number }>();
+    await env.DB.prepare("INSERT INTO user_cards VALUES (910,'s-rst-b@1',456,'{}')").run();
+    await env.DB.prepare(
+      "INSERT INTO answer_events (event_id,user_id,sense_id,item_id,source,action,answer,correct,created_at,rating) VALUES ('evt-rst-2',910,'s-rst-b@1',?,'daily','spell','resetb',1,1,'Good')"
+    ).bind(i2!.id).run();
+
+    // 重置前的共享面快照：共享池/教材/配额/账号不得被用户级重置触碰（计划原文约束）
+    const sharedCount = async (t: string) =>
+      (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first<{ n: number }>())?.n ?? -1;
+    const sharedTables = ["pool_units","curriculum_units","curriculum_senses","curriculum_unit_senses","user_quotas","users"];
+    const sharedBefore: Array<[string, number]> = [];
+    for (const t of sharedTables) sharedBefore.push([t, await sharedCount(t)]);
+
+    const res = await SELF.fetch("https://example.com/api/admin/reset-progress", {
+      method: "POST", headers: { "content-type": "application/json", "x-admin-token": adminToken },
+      body: JSON.stringify({ scope: "global", user_ids: [909], deep: true }),
+    });
+    expect(res.status).toBe(200);
+
+    // 孩子 1：新世界四类全空。daily_items 随 daily_lists ON DELETE CASCADE 带走；
+    // answer_events 中挂条目的每日事件随条目级联删除，加练事件（item_id NULL）由显式 DELETE 兜住。
+    for (const [t, where, arg] of [
+      ["user_cards", "user_id", 909],
+      ["daily_lists", "user_id", 909],
+      ["answer_events", "user_id", 909],
+    ] as const) {
+      expect(
+        await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${where}=?`).bind(arg).first<{ n: number }>(),
+        `${t} 深度重置后应为空`,
+      ).toEqual({ n: 0 });
+    }
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS n FROM daily_items WHERE list_id=?").bind(l1!.id).first<{ n: number }>(),
+      "daily_items 应随清单级联删除",
+    ).toEqual({ n: 0 });
+    // 旧世界口径仍清：user_word_state 行消失、stats 归零
+    expect(await env.DB.prepare("SELECT word_id FROM user_word_state WHERE user_id=909").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT stars, streak_days FROM user_stats WHERE user_id=909").first<any>())
+      .toEqual({ stars: 0, streak_days: 0 });
+
+    // 孩子 2：逐表原样
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM user_cards WHERE user_id=910").first<{ n: number }>()).toEqual({ n: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM daily_lists WHERE user_id=910").first<{ n: number }>()).toEqual({ n: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM daily_items WHERE list_id=?").bind(l2!.id).first<{ n: number }>()).toEqual({ n: 1 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM answer_events WHERE user_id=910").first<{ n: number }>()).toEqual({ n: 1 });
+
+    // 共享池/教材/配额/账号：计数不变
+    for (const [t, before] of sharedBefore) {
+      expect(await sharedCount(t), `${t} 不得被用户级重置触碰`).toBe(before);
+    }
+    expect(await env.DB.prepare("SELECT daily_limit FROM user_quotas WHERE user_id=910").first<{ daily_limit: number }>())
+      .toEqual({ daily_limit: 20 });
+  });
 });
 
 describe("kid: wrong-answer events (mistake book logging)", () => {

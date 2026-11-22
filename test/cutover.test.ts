@@ -290,8 +290,11 @@ describe("换库演练端到端（旧进度 → 一次性切换 → 装载 → �
       "SELECT stars, streak_days, last_play_date FROM user_stats WHERE user_id = ?",
     ).bind(didi as number).first<{ stars: number; streak_days: number; last_play_date: string }>();
     expect(statsD, "弟弟星星/连击应从零开始累计").toEqual({ stars: 1, streak_days: 1, last_play_date: D2 });
-    expect(await db.prepare("SELECT user_id FROM user_stats WHERE user_id = ?")
-      .bind(geger as number).first(), "哥哥没答对过：不应有奖励行").toBeNull();
+    const statsG = await db.prepare(
+      "SELECT stars, streak_days, last_play_date FROM user_stats WHERE user_id = ?",
+    ).bind(geger as number).first<{ stars: number; streak_days: number; last_play_date: string }>();
+    expect(statsG, "哥哥答错（Again）也记学习日：星 0、连击续上（三通道一致裁决）")
+      .toEqual({ stars: 0, streak_days: 1, last_play_date: D2 });
 
     // —— ⑧ 再次导入教材（幂等 upsert）：新进度不被抹掉、账号不变、无重复 ——
     const beforeImport = await snapshotState();

@@ -190,6 +190,23 @@ admin.post("/reset-progress", async (c) => {
     stmts.push(db.prepare(
       `UPDATE user_stats SET stars=0, streak_days=0, last_play_date=NULL WHERE user_id IN (${placeholders})`
     ).bind(...user_ids));
+    // 深度重置覆盖新世界表（计划任务 7 验收点：全局重置+深度必须连 FSRS 卡与每日记录一起清）：
+    //   - user_cards：该孩子的 FSRS 卡（首页"已学词"口径随之归零）；
+    //   - daily_lists：list_id→daily_items 为 ON DELETE CASCADE，删清单连带删条目；
+    //     answer_events.item_id 也 ON DELETE CASCADE 指向条目——挂条目的每日事件随清单级联消失；
+    //   - answer_events：显式按人再清一遍，兜住 item_id 为 NULL 的自主加练事件
+    //     （加练不经清单/条目，级联够不着）。
+    // 顺序无副作用：D1 batch 单事务。只按 user_ids 清个人状态，不碰
+    // pool_units/user_quotas/curriculum_*/users（不得误清另一个孩子或共享池——计划原文约束）。
+    stmts.push(db.prepare(
+      `DELETE FROM user_cards WHERE user_id IN (${placeholders})`
+    ).bind(...user_ids));
+    stmts.push(db.prepare(
+      `DELETE FROM daily_lists WHERE user_id IN (${placeholders})`
+    ).bind(...user_ids));
+    stmts.push(db.prepare(
+      `DELETE FROM answer_events WHERE user_id IN (${placeholders})`
+    ).bind(...user_ids));
   }
   const results = await db.batch(stmts);
   return c.json({
