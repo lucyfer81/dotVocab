@@ -3,6 +3,7 @@ import type { Env } from "./index";
 import { updateSrs, emptyState, type SrsState } from "./srs";
 import { parseJsonBody } from "./http";
 import { dayStr, openDailyList } from "./daily-list";
+import { submitDailyAnswer, type DailyAction } from "./daily-answer";
 
 const kid = new Hono<{ Bindings: Env }>();
 
@@ -199,6 +200,44 @@ kid.post("/daily/open", async (c) => {
   const user = await c.env.DB.prepare("SELECT id FROM users WHERE id=?").bind(body.userId).first();
   if (!user) return c.json({ error: "用户不存在" }, 404);
   return c.json(await openDailyList(c.env.DB, body.userId, Date.now()));
+});
+
+// 每日作答：首次作答/订正与奖励一次生效。抢占、幂等回放、迟交 409 与
+// 订正推进逻辑都在 submitDailyAnswer（见 src/daily-answer.ts），此处只做
+// 参数校验与状态码映射：stale_day→409，not_found→404。
+kid.post("/daily/answer", async (c) => {
+  const body = await parseJsonBody<{
+    userId: number; itemId: number; eventId: string; action: string; answer?: string;
+  }>(c);
+  if (!body) return c.json({ error: "请求体不是合法 JSON" }, 400);
+  if (!Number.isSafeInteger(body.userId) || body.userId <= 0 ||
+      !Number.isSafeInteger(body.itemId) || body.itemId <= 0) {
+    return c.json({ error: "参数不完整" }, 400);
+  }
+  if (typeof body.eventId !== "string" || body.eventId.length === 0 || body.eventId.length > 100) {
+    return c.json({ error: "eventId 必须为 1-100 字符的字符串" }, 400);
+  }
+  if (body.action !== "spell" && body.action !== "reveal") {
+    return c.json({ error: "action 必须为 spell 或 reveal" }, 400);
+  }
+  if (body.action === "spell" && typeof body.answer !== "string") {
+    return c.json({ error: "spell 作答必须携带 answer 字符串" }, 400);
+  }
+  const user = await c.env.DB.prepare("SELECT id FROM users WHERE id=?").bind(body.userId).first();
+  if (!user) return c.json({ error: "用户不存在" }, 404);
+  const outcome = await submitDailyAnswer(c.env.DB, {
+    userId: body.userId,
+    itemId: body.itemId,
+    eventId: body.eventId,
+    action: body.action as DailyAction,
+    answer: typeof body.answer === "string" ? body.answer : null,
+  }, Date.now());
+  if (!outcome.ok) {
+    return outcome.code === "stale_day"
+      ? c.json({ error: "清单已过日，请重新打开今日清单" }, 409)
+      : c.json({ error: "条目不存在或不属于该孩子" }, 404);
+  }
+  return c.json(outcome.result);
 });
 
 export { kid };
