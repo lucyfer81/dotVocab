@@ -1,7 +1,10 @@
 // Verbatim copy of migrations/0001_init.sql. Tests run inside workerd (no fs),
 // and the migration can't be vite-`define`d (its non-Latin1 chars break the
 // workers-pool ByteString header). Keep in sync with the migration.
-export const SCHEMA_SQL = `
+// @ts-expect-error workerd loads SQL modules as text
+import cutover from "../migrations/0003_curriculum_daily.sql";
+export const CUTOVER_SQL: string = cutover;
+export const LEGACY_SCHEMA_SQL = `
 -- 课本单元
 CREATE TABLE IF NOT EXISTS units (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,3 +84,4 @@ CREATE TABLE IF NOT EXISTS user_stats (
 INSERT OR IGNORE INTO users (name, avatar) VALUES ('哥哥', '👦');
 INSERT OR IGNORE INTO users (name, avatar) VALUES ('弟弟', '👶');
 `;
+export const SCHEMA_SQL = LEGACY_SCHEMA_SQL + CUTOVER_SQL.split("-- One-time D1 cutover")[0];
