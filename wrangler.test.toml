@@ -6,6 +6,10 @@ main = "src/index.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+# 测试专用 vars：与 test/helpers.ts 的 adminToken 保持一致（生产用 wrangler secret，勿在此放真实 token）。
+[vars]
+ADMIN_TOKEN = "test-admin-token"
+
 [assets]
 directory = "./public"
 binding = "ASSETS"
@@ -19,4 +23,4 @@ database_id = "a2babb4b-9845-4197-8e8a-bc2b30979008"
 [[kv_namespaces]]
 binding = "AUDIO"
 id = "ae50b24969b04bfcb294fd0a9dc1d471"
-preview_id = "3daa21c414fe79292981ab8fa2ee9"
+preview_id = "3daa21a33c414fe79292981ab8fa2ee9"
