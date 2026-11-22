@@ -4,11 +4,10 @@ import { showConfirm, showToast } from "./ui.js";
 import { createTtsPlayer } from "./tts-player.js";
 import { recordAnswer } from "./review-client.js";
 import { countGraduated } from "./mistake-helpers.js";
+import { slugFromPath, nameForSlug, resolveUser, SLUG_BY_NAME } from "./user-routing.js";
 
 const API = "/api";
 let currentUser;
-try { currentUser = JSON.parse(localStorage.getItem("dotvocab_user") || "null"); }
-catch { currentUser = null; }
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
@@ -78,9 +77,8 @@ async function showIdentity() {
   users.forEach((u) => {
     const card = $(`<button class="card user"><div class="avatar">${escapeHtml(u.avatar)}</div><div>${escapeHtml(u.name)}</div></button>`);
     card.onclick = () => {
-      currentUser = u;
-      localStorage.setItem("dotvocab_user", JSON.stringify(u));
-      showHome();
+      const slug = SLUG_BY_NAME[u.name];
+      if (slug) location.href = "/" + slug; // 无代号的用户不跳转
     };
     grid.appendChild(card);
   });
@@ -99,7 +97,7 @@ async function showHome() {
     <h2>🪐 选择星球关卡</h2>
     <div class="units"></div>
   </section>`);
-  wrap.querySelector("#switch").onclick = () => { currentUser = null; localStorage.removeItem("dotvocab_user"); showIdentity(); };
+  wrap.querySelector("#switch").onclick = () => { location.href = "/"; };
   wrap.querySelector("#review").onclick = () => startSession({ mode: "due" });
   const mb = wrap.querySelector("#mistakes");
   if (home.mistake_count > 0) {
@@ -353,9 +351,21 @@ async function startSession({ mode, unit_id, title }) {
 
 // ---------- boot ----------
 (async function boot() {
+  localStorage.removeItem("dotvocab_user"); // 清旧版记忆残留，URL 是身份的唯一来源
   try {
-    if (currentUser) await showHome();
-    else await showIdentity();
+    // 未知代号（打错字、多级路径）宽容回选择页；已知代号但数据库对不上才报错
+    const slug = slugFromPath(location.pathname);
+    if (!slug || !nameForSlug(slug)) return await showIdentity();
+    const u = resolveUser(slug, await api("/users"));
+    if (!u) {
+      render($(`<section><h2>🧭 没找到这位宇航员</h2>
+        <p class="bad">链接里的代号（${escapeHtml(slug)}）对不上任何用户</p>
+        <button class="big" id="back">回基地选人</button></section>`));
+      document.getElementById("back").onclick = () => { location.href = "/"; };
+      return;
+    }
+    currentUser = u;
+    await showHome();
   } catch (e) {
     render($(`<section><p class="bad">网络出错了：${escapeHtml(e.message)}</p><button class="big" onclick="location.reload()">重试</button></section>`));
   }
