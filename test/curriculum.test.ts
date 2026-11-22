@@ -277,3 +277,12 @@ it("真实五列表按行读取 Starter 和 Unit，忽略读音与词性附录",
     { unit: 1, row: 1, accepted: ["good morning"], meaning: "早上好" },
   ]);
 });
+
+it("五列表的第一条编号行缺词时报告阻断问题，保留后续行序", async () => {
+  const text = ["| 序号 | 单元 | 单词 | 读音 | 词义 |", "|---|---|---|---|---|",
+    "| 1 | Unit 1 | | /ˈmɔːnɪŋ/ | n. 早晨；上午 |",
+    "| 2 | Unit 1 | afternoon | /ɑːftəˈnuːn/ | n. 下午 |"].join("\n");
+  const { books, issues } = await buildCurriculum(DIR, {}, io({ ...FILES, [BOOK_SPECS[0].file]: text }));
+  expect(issues).toContainEqual(expect.objectContaining({ type: "unparseable-term", blocking: true, book: "一上", unit: 1, row: 1 }));
+  expect(books[0].entries).toMatchObject([{ term: "afternoon", row: 2 }]);
+});

@@ -164,8 +164,8 @@ function parseBookContent(content) {
     }
     const termCell = cleanCell(cells[numbered ? 2 : 0]);
     const meaningCell = cleanMeaning(cells[numbered ? 4 : 1] ?? "");
-    if (termCell === "" && meaningCell === "") continue; // 空噪音行
-    if (!tableSeenData && !tableSeenHeader && isHeaderish(termCell, meaningCell)) {
+    if (!numbered && termCell === "" && meaningCell === "") continue;
+    if (!numbered && !tableSeenData && !tableSeenHeader && isHeaderish(termCell, meaningCell)) {
       tableSeenHeader = true;
       continue;
     }
@@ -594,6 +594,7 @@ async function main() {
     console.log(blocking === 0 ? "未裁决条目：0。" : `未裁决条目：${blocking} 条（见 --preview）。`);
     if (fs.existsSync(outPath)) {
       const onDisk = fs.readFileSync(outPath, "utf8");
+      ok = ok && onDisk === ja;
       console.log(onDisk === ja ? `与现有 ${outPath} 一致。` : `与现有 ${outPath} 不一致（需重新生成）。`);
     }
     console.log(ok ? "检查通过。" : "检查未通过。");
