@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 // 被测适配器必须排第一：RED 阶段 src/fsrs.ts 不存在，解析应在此失败。
 import { advanceCard } from "../src/fsrs";
-import { fsrs, createEmptyCard, Rating, type Grade } from "ts-fsrs";
+import { fsrs, createEmptyCard, Rating, State, type Grade } from "ts-fsrs";
 
 const NOW = 1_700_000_000_000;
 const DAY = 86_400_000;
@@ -73,7 +73,9 @@ describe("advanceCard: 序列化往返后复习与连续调用结果一致", () 
     expectCardFields(payloadOf(s2.state), c2);
   });
 
-  it("round-trip then Again (lapse) equals the continuous in-memory path", () => {
+  it("round-trip then Again in learning state (no lapse) equals the continuous in-memory path", () => {
+    // 注意：New→Good 产出 Learning 卡（默认 learning steps ['1m','10m']），
+    // 此处 Again 走 learningState 路径——不加 lapses、不进 Relearning，不是真遗忘。
     const c1 = scheduleLib(createEmptyCard(new Date(NOW)), NOW, Rating.Good);
     const c2 = scheduleLib(c1, NOW + DAY, Rating.Again);
 
@@ -82,6 +84,27 @@ describe("advanceCard: 序列化往返后复习与连续调用结果一致", () 
 
     expect(s2.dueMs).toBe(c2.due.getTime());
     expectCardFields(payloadOf(s2.state), c2);
+  });
+
+  it("round-trip through a real lapse (Review -> Again) equals the continuous in-memory path", () => {
+    // 三跳才到真遗忘：New→Good 进 Learning；Learning 中 Good 走完 steps 毕业
+    // 进 Review；Review 态 Again 才走 reviewState（lapses+1、Relearning）。
+    const c0 = createEmptyCard(new Date(NOW));
+    const c1 = scheduleLib(c0, NOW, Rating.Good);
+    const c2 = scheduleLib(c1, NOW + DAY, Rating.Good);
+    const c3 = scheduleLib(c2, NOW + 5 * DAY, Rating.Again);
+
+    // 序列化路径：每一跳都经 state 字符串往返后继续。
+    const s1 = advanceCard(null, "Good", NOW);
+    const s2 = advanceCard(s1.state, "Good", NOW + DAY);
+    const s3 = advanceCard(s2.state, "Again", NOW + 5 * DAY);
+
+    expect(s3.dueMs).toBe(c3.due.getTime());
+    expectCardFields(payloadOf(s3.state), c3);
+    // 前提守卫：确认库确实走了 reviewState 真遗忘路径（否则本用例前提失效）。
+    expect(c2.state).toBe(State.Review);
+    expect(c3.lapses).toBe(1);
+    expect(c3.state).toBe(State.Relearning);
   });
 
   it("same input state + same nowMs => identical output (no hidden mutation)", () => {
