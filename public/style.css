@@ -173,10 +173,13 @@ h1,h2,h3 { margin:0.4em 0; }
 .spell-row .big { width:auto; flex-shrink:0; margin:0; white-space:nowrap; }
 
 /* ---------- 家长后台：输入控件统一外观 + 词库行/行内编辑 ---------- */
-body.admin input, body.admin select, body.admin textarea {
+body.admin input:not([type="checkbox"]), body.admin select, body.admin textarea {
   width: 100%; padding: 10px; font-size: 16px;
   border: 2px solid #cbd5e1; border-radius: 10px; margin: 4px 0;
 }
+body.admin .units { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+body.admin .units label { display: flex; align-items: center; gap: 6px; }
+body.admin .units input[type="checkbox"] { flex-shrink: 0; margin: 0; }
 .wrow { display: flex; justify-content: space-between; align-items: center; gap: 8px;
   background: #fff; border-radius: 12px; padding: 8px 14px; margin: 8px 0; }
 .wrow .wterm { text-align: left; }
