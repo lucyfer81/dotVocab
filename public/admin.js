@@ -33,7 +33,7 @@ function loginView(msg) {
 }
 
 function poolPanel({books, quotas}) {
-  const panel = $(`<section><h2>共享学习池</h2><p class="summary"></p>
+  const panel = $(`<section><h2>共享学习池</h2><div class="pool-summary"></div>
     <label>选择教材 <select class="books"></select></label>
     <fieldset><legend>选择要开放的单元（可多选）</legend><div class="units"></div></fieldset>
     <button class="big add">加入共享池</button><p role="status" class="result"></p>
@@ -41,11 +41,19 @@ function poolPanel({books, quotas}) {
   const select = panel.querySelector(".books");
   const add = panel.querySelector(".add");
   const result = panel.querySelector(".result");
+  const summary = panel.querySelector(".pool-summary");
   const unitName = u => u.unit === 0 ? "Starter" : `Unit ${u.unit}`;
   books.forEach((b,i) => select.add(new Option(b.title, i)));
   function draw() {
-    const open = books.flatMap(b => b.units.filter(u => u.open).map(u => `${b.title} · ${unitName(u)}`));
-    panel.querySelector(".summary").textContent = open.length ? `已加入：${open.join("、")}` : "共享池为空，请选择单元加入。";
+    const openBooks = books
+      .map(book => ({ title: book.title, units: book.units.filter(unit => unit.open) }))
+      .filter(book => book.units.length > 0);
+    summary.innerHTML = openBooks.length
+      ? `<h3>已加入</h3><dl>${openBooks.map(book => `
+          <div><dt>${esc(book.title)}</dt><dd><ul>
+            ${book.units.map(unit => `<li>${esc(unitName(unit))}</li>`).join("")}
+          </ul></dd></div>`).join("")}</dl>`
+      : "<p>共享池为空，请选择单元加入。</p>";
     panel.querySelector(".units").innerHTML = (books[select.selectedIndex]?.units ?? []).map(u =>
       `<label><input type="checkbox" value="${u.id}" ${u.open ? "checked disabled" : ""}> ${unitName(u)}${u.open ? "（已加入）" : ""}</label>`).join(" ");
     add.disabled = true;

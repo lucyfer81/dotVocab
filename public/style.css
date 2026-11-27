@@ -180,6 +180,14 @@ body.admin input:not([type="checkbox"]), body.admin select, body.admin textarea 
 body.admin .units { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 body.admin .units label { display: flex; align-items: center; gap: 6px; }
 body.admin .units input[type="checkbox"] { flex-shrink: 0; margin: 0; }
+.pool-summary { margin: 12px 0 16px; }
+.pool-summary h3 { font-size: 16px; margin: 0 0 8px; }
+.pool-summary dl { display: grid; gap: 8px; margin: 0; }
+.pool-summary dl > div { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+.pool-summary dt { font-weight: 600; overflow-wrap: anywhere; }
+.pool-summary dd { margin: 6px 0 0; }
+.pool-summary ul { display: flex; flex-wrap: wrap; gap: 4px 8px; list-style: none; margin: 0; padding: 0; }
+.pool-summary li { padding: 2px 8px; border-radius: 6px; background: #eff6ff; color: #1e3a8a; white-space: nowrap; }
 .wrow { display: flex; justify-content: space-between; align-items: center; gap: 8px;
   background: #fff; border-radius: 12px; padding: 8px 14px; margin: 8px 0; }
 .wrow .wterm { text-align: left; }
