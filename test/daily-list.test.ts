@@ -36,8 +36,9 @@ async function seedUnit(id: number, bookOrder: number, unit: number) {
     .bind(id, `册${id}`, `测试第${id}册`, bookOrder, unit).run();
 }
 
-async function seedSense(senseId: string, term: string, meaning: string) {
-  await db.prepare("INSERT INTO curriculum_senses VALUES (?,?,?,'{}')").bind(senseId, term, meaning).run();
+async function seedSense(senseId: string, term: string, meaning: string, accepted = [term]) {
+  await db.prepare("INSERT INTO curriculum_senses VALUES (?,?,?,?)")
+    .bind(senseId, term, meaning, JSON.stringify(accepted)).run();
 }
 
 async function linkSense(unitId: number, senseId: string, rowOrder: number) {
@@ -68,7 +69,7 @@ async function dbItemCount(userId: number, senseId?: string) {
 interface OpenResult {
   day: string;
   limit: number;
-  items: { id: number; senseId: string; term: string; meaning: string; status: string }[];
+  items: { id: number; senseId: string; term: string; meaning: string; status: string; accepted: string[] }[];
   emptyReason?: string;
 }
 
@@ -151,7 +152,7 @@ describe("每日清单 POST /api/daily/open", () => {
     // 6 张到期卡：s-due0 逾期最久 …… s-due5 最近（挂在开放单元内，满足池过滤；
     // 均有卡 → 不进新词池，不影响下面 4 个补位新词的断言）
     for (let i = 0; i < 6; i++) {
-      await seedSense(`s-due${i}@1`, `due${i}`, `到期词${i}`);
+      await seedSense(`s-due${i}@1`, `due${i}`, `到期词${i}`, [`due${i}`, `due-${i}`]);
       await linkSense(41, `s-due${i}@1`, 6 + i);
       await seedCard(u, `s-due${i}@1`, now - (6 - i) * 3_600_000);
     }
@@ -163,13 +164,13 @@ describe("每日清单 POST /api/daily/open", () => {
     expect(r.items.slice(6).map((i) => i.senseId))
       .toEqual(["s-fill1@1", "s-fill2@1", "s-fill3@1", "s-fill4@1"]); // 只补 4 个，行序小的优先
     expect(r.emptyReason).toBeUndefined();
-    // 契约形状：{id, senseId, term, meaning, status}
     expect(r.items[0]).toEqual({
       id: expect.any(Number),
       senseId: "s-due0@1",
       term: "due0",
       meaning: "到期词0",
       status: "pending",
+      accepted: ["due0", "due-0"],
     });
     // 落库 kind：前 6 条 due、后 4 条 new
     const kinds = await db.prepare(

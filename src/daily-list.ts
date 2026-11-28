@@ -16,6 +16,8 @@
 //   单元重复只占一个名额（保留按教材顺序的首次出现位置）。
 //   配额在生成时读取并随清单头固化，之后修改配额不影响已生成清单。
 
+import { parseDailySpellings } from "../public/daily-judge.js";
+
 const SHANGHAI_DATE = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
 
 // en-CA 输出 YYYY-MM-DD。kid.ts 的 applyReviewStats 复用本函数。
@@ -43,6 +45,7 @@ export interface DailyItem {
   term: string;
   meaning: string;
   status: string;
+  accepted: string[];
 }
 
 export interface DailyOpenResult {
@@ -127,7 +130,7 @@ export async function openDailyList(
       "SELECT id, daily_limit FROM daily_lists WHERE user_id = ?1 AND study_date = ?2"
     ).bind(userId, day),
     db.prepare(
-      `SELECT i.id, i.sense_id AS senseId, s.term, s.meaning, i.status
+      `SELECT i.id, i.sense_id AS senseId, s.term, s.meaning, i.status, s.accepted_json AS acceptedJson
        FROM daily_items i
        JOIN daily_lists h ON h.id = i.list_id
        JOIN curriculum_senses s ON s.sense_id = i.sense_id
@@ -143,7 +146,8 @@ export async function openDailyList(
     // 路由已验证用户存在，步骤 1 要么插入要么撞唯一约束；不可达，防御性报错。
     throw new Error(`daily: 清单头缺失 user=${userId} day=${day}`);
   }
-  const items = batchResults[3].results as DailyItem[];
+  const rows = batchResults[3].results as Array<Omit<DailyItem, "accepted"> & { acceptedJson: string }>;
+  const items = rows.map(({ acceptedJson, ...item }) => ({ ...item, accepted: parseDailySpellings(acceptedJson) }));
 
   const result: DailyOpenResult = { day, limit: header.daily_limit, items };
   if (items.length === 0) {

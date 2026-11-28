@@ -101,6 +101,91 @@ export async function recordDailyAnswer(opts) {
   return null; // 不可达（循环内必然返回）
 }
 
+// One ordered outbox per learner. Each event has its own storage key so two
+// tabs cannot overwrite each other's pending submissions.
+export function createDailySync({ userId, post, storage, locks, retryMs = 8000 }) {
+  const prefix = `dotvocab:daily-answer:${userId}:`;
+  const pending = new Map();
+  const listeners = new Set();
+  let running = false;
+  let retryTimer;
+  let lastOrder = 0;
+
+  function notify(event, result, rejected) {
+    for (const listener of listeners) listener(event, result, rejected);
+  }
+
+  function restore() {
+    try {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (!key?.startsWith(prefix)) continue;
+        const event = JSON.parse(storage.getItem(key));
+        if (event?.eventId && !pending.has(event.eventId)) {
+          pending.set(event.eventId, { ...event, durable: true });
+          lastOrder = Math.max(lastOrder, event.order);
+        }
+      }
+    } catch {} // Storage can be unavailable in private browsing.
+  }
+
+  async function drain() {
+    restore();
+    while (pending.size) {
+      const event = [...pending.values()].sort((a, b) => a.order - b.order)[0];
+      let rejected;
+      const result = await recordDailyAnswer({
+        ...event, userId, post,
+        onConflict: () => { rejected = "stale_day"; },
+        onError: (error) => {
+          if ([400, 404, 422].includes(error.status)) rejected = "rejected";
+        },
+      });
+      if (!result && !rejected) return;
+      pending.delete(event.eventId);
+      try { storage.removeItem(prefix + event.eventId); } catch {}
+      notify(event, result, rejected);
+    }
+  }
+
+  async function flush() {
+    if (running) return;
+    clearTimeout(retryTimer);
+    running = true;
+    try {
+      if (locks) await locks.request(prefix, drain);
+      else await drain();
+    } finally {
+      running = false;
+      if (pending.size) retryTimer = setTimeout(flush, retryMs);
+    }
+  }
+
+  restore();
+  return {
+    enqueue({ day, itemId, action, answer }) {
+      const eventId = makeEventId(userId);
+      const order = lastOrder = Math.max(Date.now(), lastOrder + 1);
+      const event = { day, itemId, action, answer, eventId, order };
+      let durable = false;
+      try {
+        storage.setItem(prefix + eventId, JSON.stringify(event));
+        durable = true;
+      } catch {}
+      pending.set(eventId, { ...event, durable });
+      notify();
+      void flush();
+      return eventId;
+    },
+    entries: () => [...pending.values()].sort((a, b) => a.order - b.order),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    flush,
+  };
+}
+
 // opts: { post, userId, senseId, correct, source: 'unit'|'mistake', answer?, eventId?,
 //         onResult(响应), onError(err, eventId) }
 // 答对 answer 记 null；答错携带原始拼写供练习日志留痕。返回响应或 null。

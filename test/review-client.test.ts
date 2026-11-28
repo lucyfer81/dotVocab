@@ -1,10 +1,47 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
+  createDailySync,
   makeEventId,
   recordDailyAnswer,
   recordPracticeAnswer,
   scheduleDailyItems,
 } from "../public/review-client.js";
+
+describe("每日作答后台同步", () => {
+  it("刷新后保留原事件 ID，首次作答同步成功后才提交订正", async () => {
+    vi.useFakeTimers();
+    try {
+      const saved = new Map<string, string>();
+      const storage = {
+        get length() { return saved.size; },
+        key: (index: number) => [...saved.keys()][index],
+        getItem: (key: string) => saved.get(key),
+        setItem: (key: string, value: string) => saved.set(key, value),
+        removeItem: (key: string) => saved.delete(key),
+      };
+      const disconnected = makePost([{}, {}]);
+      const original = createDailySync({ userId: 7, post: disconnected.post, storage });
+      const day = "2026-11-28";
+      const reveal = original.enqueue({ day, itemId: 19, action: "reveal", answer: null });
+      const spell = original.enqueue({ day, itemId: 19, action: "spell", answer: "colour" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(disconnected.calls.map(({ body }) => body.eventId)).toEqual([reveal, reveal]);
+      expect(saved.size).toBe(2);
+      vi.clearAllTimers();
+
+      const connected = makePost();
+      const resumed = createDailySync({ userId: 7, post: connected.post, storage });
+      await resumed.flush();
+      expect(connected.calls.map(({ body }) => [body.eventId, body.action])).toEqual([
+        [reveal, "reveal"], [spell, "spell"],
+      ]);
+      expect(resumed.entries()).toEqual([]);
+      expect(saved.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 // ---------- 上报客户端纯函数测试（makePost 模式） ----------
 // post: (path, bodyObj) => Promise，按脚本注入失败/成功；记录调用时序供断言。

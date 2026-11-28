@@ -50,6 +50,7 @@
 
 import { advanceCard, type CardRating } from "./fsrs";
 import { dayStr } from "./daily-list";
+import { matchesDailySpelling, normalizeDailyAnswer, parseDailySpellings } from "../public/daily-judge.js";
 
 export type DailyAction = "spell" | "reveal";
 
@@ -233,21 +234,6 @@ WHERE i.id = ?`;
 // spell 按 accepted_json 判定（trim + 小写，提交答案同样小写归一）；
 // reveal 直接判错（首次看答案）。accepted_json 解析失败按判错兜底
 // （fail-closed，孩子仍可订正）。
-function judge(action: DailyAction, normalizedAnswer: string | null, acceptedJson: string): boolean {
-  if (action === "reveal" || normalizedAnswer == null) return false;
-  let accepted: unknown[];
-  try {
-    const parsed: unknown = JSON.parse(acceptedJson);
-    if (!Array.isArray(parsed)) return false;
-    accepted = parsed;
-  } catch {
-    return false;
-  }
-  return accepted.some(
-    (a) => typeof a === "string" && a.trim().toLowerCase() === normalizedAnswer,
-  );
-}
-
 function loserResult(row: AuthRow, eventId: string, stage: DailyStage): DailyAnswerResult {
   return {
     eventId,
@@ -276,10 +262,7 @@ export async function submitDailyAnswer(
   const itemId = input.itemId;
   const eventId = input.eventId;
   // 答案统一 trim + 小写后截断 100 字符存储；判定也用同一规范化结果。
-  const normalizedAnswer =
-    input.action === "spell" && input.answer != null
-      ? input.answer.trim().toLowerCase().slice(0, 100)
-      : null;
+  const normalizedAnswer = normalizeDailyAnswer(input.action, input.answer);
 
   // 1) 幂等回放：同 eventId（且归属同一孩子）重发返回当时的权威返回。
   const replayed = await db.prepare(REPLAY_SQL).bind(eventId, userId)
@@ -302,7 +285,7 @@ export async function submitDailyAnswer(
 
   // 4) 首次作答：单语句条件 UPDATE 抢占 pending；胜者独占期内原子落库。
   if (item.status === "pending") {
-    const correct = judge(input.action, normalizedAnswer, item.acceptedJson);
+    const correct = matchesDailySpelling(normalizedAnswer, parseDailySpellings(item.acceptedJson));
     const rating: CardRating = correct ? "Good" : "Again";
     const newStatus = correct ? "done" : "correction";
     const after = advanceCard(item.cardJson, rating, nowMs);
@@ -346,7 +329,7 @@ export async function submitDailyAnswer(
 
   // 5) 订正：答对→抢占推进到 done 后记录订正事件；答错/看答案→确认条目仍为
   //    correction 后记录失败订正事件。不碰卡片、星星与首次错误记录。
-  const correct = judge(input.action, normalizedAnswer, item.acceptedJson);
+  const correct = matchesDailySpelling(normalizedAnswer, parseDailySpellings(item.acceptedJson));
   if (correct) {
     const claim = await db.prepare(CLAIM_CORRECTION_DONE_SQL)
       .bind(itemId, eventId, userId, userId, day).run();

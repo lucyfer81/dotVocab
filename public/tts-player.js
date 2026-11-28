@@ -34,8 +34,40 @@ export function createTtsPlayer(env = {}) {
 
   let audio = null;
   let current = null; // 本次调用自己的状态；被打断后所有迟到回调失效
-  const prefetched = new Set(); // 已预取过的词
   const blobUrls = new Map(); // term -> blob: URL，预取成功后 speak() 零网络秒起播
+  const attempted = new Set();
+  const prefetchJobs = new Map();
+  const prefetchQueue = [];
+  let activeDownloads = 0;
+
+  function pumpPrefetch() {
+    while (activeDownloads < TTS_PREFETCH_CONCURRENCY && prefetchQueue.length) {
+      const job = prefetchQueue.shift();
+      activeDownloads++;
+      download(job);
+    }
+  }
+
+  async function download({ term, resolve }) {
+    try {
+      const res = await fetcher(ttsUrl(term));
+      if (res?.ok) blobUrls.set(term, createObjectURL(await res.blob()));
+    } catch {} // 播放时仍可走原有的网络和设备朗读回退
+    activeDownloads--;
+    prefetchJobs.delete(term);
+    resolve(blobUrls.get(term));
+    pumpPrefetch();
+  }
+
+  function prefetchTerm(term) {
+    if (prefetchJobs.has(term)) return prefetchJobs.get(term);
+    if (attempted.has(term)) return Promise.resolve(blobUrls.get(term));
+    attempted.add(term);
+    const promise = new Promise((resolve) => prefetchQueue.push({ term, resolve }));
+    prefetchJobs.set(term, promise);
+    pumpPrefetch();
+    return promise;
+  }
 
   function ensureAudio() {
     if (!audio) audio = newAudio();
@@ -76,14 +108,14 @@ export function createTtsPlayer(env = {}) {
     speak(text) {
       settle(); // 打断旧朗读：旧的 promise 立即放行，不会悬挂
       cancelSynth();
+      const pending = prefetchJobs.get(text);
+      if (pending) stopAudio();
       const a = ensureAudio();
       let resolveP;
       const promise = new Promise((r) => { resolveP = r; });
 
       const onEnded = () => settle();
       const onError = () => fallback();
-      a.addEventListener("ended", onEnded);
-      a.addEventListener("error", onError);
 
       const invocation = {
         settled: false,
@@ -120,9 +152,18 @@ export function createTtsPlayer(env = {}) {
         settle();
       }, TTS_MAX_WAIT_MS);
       current = invocation;
-      a.src = blobUrls.get(text) || ttsUrl(text); // 命中预取：blob 秒起播，否则走网络
-      const playP = a.play();
-      if (playP && playP.catch) playP.catch(() => fallback());
+      const play = (source) => {
+        if (!isMine()) return;
+        try {
+          a.addEventListener("ended", onEnded);
+          a.addEventListener("error", onError);
+          a.src = source;
+          const playP = a.play();
+          if (playP && playP.catch) playP.catch(fallback);
+        } catch { fallback(); }
+      };
+      if (pending) pending.then((source) => source ? play(source) : fallback());
+      else play(blobUrls.get(text) || ttsUrl(text));
       return promise;
     },
 
@@ -136,24 +177,7 @@ export function createTtsPlayer(env = {}) {
     // speak() 时零网络秒起播，消除首次读音的合成/网络延迟。
     // 媒体元素走 Range 请求不会复用普通 HTTP 缓存，所以必须自己持有 blob。
     async prefetch(terms) {
-      const todo = [];
-      for (const t of terms) {
-        if (!prefetched.has(t)) { prefetched.add(t); todo.push(t); }
-      }
-      let i = 0;
-      const worker = async () => {
-        while (i < todo.length) {
-          const term = todo[i++];
-          try {
-            const res = await fetcher(ttsUrl(term));
-            if (res && res.ok) {
-              const blob = await res.blob();
-              blobUrls.set(term, createObjectURL(blob));
-            }
-          } catch {} // 失败静默：真正播放时走网络 URL + 机械音回退
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(TTS_PREFETCH_CONCURRENCY, todo.length) }, worker));
+      await Promise.all(terms.map(prefetchTerm));
     },
   };
 }

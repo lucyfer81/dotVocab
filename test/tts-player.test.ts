@@ -273,6 +273,27 @@ describe("tts player", () => {
       await p;
     });
 
+    it("joins an in-flight prefetch when the first card tries to speak", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let requests = 0;
+      const fetchImpl = async () => {
+        requests++;
+        await gate;
+        return { ok: true, blob: async () => "cat" };
+      };
+      const { player, audio } = makeEnv({ fetchImpl, createObjectURL: (blob) => `blob:${blob}` });
+      const preload = player.prefetch(["cat"]);
+      const playback = player.speak("cat");
+      expect(audio.playCalls).toBe(0);
+      release();
+      await preload;
+      expect(requests).toBe(1);
+      expect(audio.src).toBe("blob:cat");
+      audio.dispatch("ended");
+      await playback;
+    });
+
     it("failed prefetch falls back to the network url at speak time", async () => {
       const fetchImpl = async () => ({ ok: false }); // 502 等失败
       const { player, audio } = makeEnv({

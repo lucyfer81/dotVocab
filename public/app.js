@@ -2,11 +2,14 @@ import { shouldRejectInputType, sanitizeValue, renderMirrorHtml, diffHtml } from
 import { sfx } from "./sfx.js";
 import { showConfirm, showToast } from "./ui.js";
 import { createTtsPlayer } from "./tts-player.js";
-import { recordDailyAnswer, recordPracticeAnswer, scheduleDailyItems } from "./review-client.js";
+import { matchesDailySpelling, normalizeDailyAnswer } from "./daily-judge.js";
+import { createDailySync, recordPracticeAnswer, scheduleDailyItems } from "./review-client.js";
 import { slugFromPath, nameForSlug, resolveUser, SLUG_BY_NAME } from "./user-routing.js";
 
 const API = "/api";
 let currentUser;
+let dailySync;
+let openingDaily = false;
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
@@ -22,6 +25,16 @@ async function api(path, opts = {}) {
   return res.json();
 }
 const postJson = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
+
+async function postDailySync(path, body) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeout = controller && setTimeout(() => controller.abort(), 15000);
+  try {
+    return await api(path, { method: "POST", body: JSON.stringify(body), signal: controller?.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function $(html) {
   const t = document.createElement("template");
@@ -180,15 +193,24 @@ function buildStudyCard(title, withReveal) {
   </section>`);
 }
 
-// ---------- 每日任务：POST /daily/open + /daily/answer（服务端判定） ----------
+// ---------- 每日任务：本地判题，后台按顺序同步 ----------
 async function startDailySession() {
+  if (openingDaily) return;
+  openingDaily = true;
   tts.unlock(); // 还在手势调用栈内：借一次静音播放换取整局自动读音权限
+  const confirmedDuringOpen = [];
+  const unsubscribe = dailySync.subscribe((event, result) => {
+    if (result) confirmedDuringOpen.push({ day: event.day, item: result.item });
+  });
   let opened;
   try {
     opened = await postJson("/daily/open", { userId: currentUser.id });
   } catch (e) {
     renderLoadError("今日任务", e);
     return;
+  } finally {
+    unsubscribe();
+    openingDaily = false;
   }
   if (opened.emptyReason) {
     // 统一文案：清单固定后，同一天里 emptyReason 可能随共享池变化而漂移
@@ -199,17 +221,24 @@ async function startDailySession() {
     document.getElementById("back").onclick = showHome;
     return;
   }
-  await runDailySession(opened);
+  runDailySession(opened, confirmedDuringOpen);
 }
 
-async function runDailySession(opened) {
+function runDailySession(opened, confirmedDuringOpen) {
   const title = "今日任务";
   const items = opened.items;
   const total = items.length;
-  const statusById = new Map(items.map((i) => [i.id, i.status]));
-  // 恢复/调度规则：跳过 done；correction 排在其他待练词之后（只剩错词时立即订正）
-  const queue = scheduleDailyItems(items);
-  let completed = total - queue.length; // 进度按不同条目计数，不按尝试次数
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  const confirmed = new Map(items.map((item) => [item.id, item.status]));
+  for (const { day, item } of confirmedDuringOpen) {
+    if (day === opened.day && confirmed.has(item.id) && confirmed.get(item.id) !== "done") {
+      confirmed.set(item.id, item.status);
+    }
+  }
+  const statusById = new Map();
+  const sessionEvents = new Set();
+  const deferred = new Set();
+  let completed = 0;
   let stars = 0;
   let firstRight = 0; // 首次独立拼对的条目数（订正不计）
   let streak = 0;     // 连击：连续答对数
@@ -217,25 +246,79 @@ async function runDailySession(opened) {
   let study = null;
   let actionHandler = null;
   let currentReveal = null; // 当前卡的「先看答案」动作（ensureStudy 只建一次 DOM）
+  let activeItemId;
+  let feedbackEventId;
+  let finishCard;
+  let pending = [];
 
-  if (queue.length === 0) {
+  function isCorrect(item, action, answer) {
+    return matchesDailySpelling(normalizeDailyAnswer(action, answer), item.accepted ?? []);
+  }
+
+  function refreshStatuses() {
+    for (const [id, status] of confirmed) statusById.set(id, status);
+    pending = dailySync.entries().filter((event) => event.day === opened.day && itemsById.has(event.itemId));
+    for (const event of pending) {
+      const status = statusById.get(event.itemId);
+      if (status === "done") continue;
+      const correct = isCorrect(itemsById.get(event.itemId), event.action, event.answer);
+      statusById.set(event.itemId, correct ? "done" : "correction");
+    }
+    completed = [...statusById.values()].filter((status) => status === "done").length;
+  }
+
+  function remainingItems() {
+    const scheduled = scheduleDailyItems(items.map((item) => ({ ...item, status: statusById.get(item.id) })));
+    const deferredItems = new Map(scheduled.filter((item) => item.status === "correction" && deferred.has(item.id))
+      .map((item) => [item.id, item]));
+    return scheduled.filter((item) => !deferredItems.has(item.id))
+      .concat([...deferred].map((id) => deferredItems.get(id)).filter(Boolean));
+  }
+
+  refreshStatuses();
+  if (completed === total && pending.length === 0) {
     render($(`<section><h2>${escapeHtml(title)}</h2><p>今天的任务已经全部完成啦 🎉 明天再来吧！</p>
       <button class="big" id="back">返回基地</button></section>`));
     document.getElementById("back").onclick = showHome;
     return;
   }
 
+  const unsubscribe = dailySync.subscribe((event, result, rejection) => {
+    if (event?.day === opened.day && itemsById.has(event.itemId)) {
+      if (rejection === "stale_day") return showStaleDay();
+      if (result) {
+        confirmed.set(result.item.id, result.item.status);
+        if (sessionEvents.has(event.eventId) && result.applied) {
+          stars += result.starsAwarded || 0;
+          if (result.stage === "first" && result.correct) firstRight++;
+          if (event.eventId === feedbackEventId && result.starsAwarded > 0) {
+            study?.fb.querySelector(".ok")?.append(" ⭐");
+          }
+        }
+      }
+      if (rejection) showToast("有一条答案未能保存，请重新作答", "bad");
+    }
+    refreshStatuses();
+    updateProgress();
+    updateSyncStatus();
+  });
+
+  function returnHome() {
+    aborted = true;
+    unsubscribe();
+    stopSpeak();
+    showHome();
+  }
+
   async function quitSession() {
     const ok = await showConfirm({
       title: "🚀 要返回基地吗？",
-      message: "进度已经保存，下次可以继续哦",
+      message: pending.length ? "还有答案待同步，下次回来可以继续" : "进度已经保存，下次可以继续哦",
       okText: "返回基地",
       cancelText: "继续任务",
     });
     if (!ok) return;
-    aborted = true;
-    stopSpeak(); // 半路退出：立刻安静，不带声音回基地
-    showHome();
+    returnHome();
   }
 
   function updateProgress() {
@@ -250,6 +333,7 @@ async function runDailySession(opened) {
   function ensureStudy() {
     if (study) return study;
     const card = buildStudyCard(title, true);
+    card.insertAdjacentHTML("beforeend", '<p class="muted" id="daily-sync" role="status" hidden></p>');
     card.querySelector("#quit").onclick = quitSession;
     // 点击不抢输入框焦点（preventDefault 只拦截聚焦，click 照常触发），键盘不落
     const keepFocus = (e) => e.preventDefault();
@@ -271,45 +355,60 @@ async function runDailySession(opened) {
       fb: card.querySelector("#fb"),
       action: card.querySelector("#action"),
       reveal: card.querySelector("#reveal"),
+      sync: card.querySelector("#daily-sync"),
     };
+    updateSyncStatus();
     return study;
   }
 
   function showStaleDay() {
     aborted = true;
+    unsubscribe();
     stopSpeak();
     render($(`<section><h2>🌙 清单已过日</h2>
-      <p>这份清单是昨天打开的。进度已经保存，重新打开今天的清单继续吧！</p>
+      <p>这份清单已过期，尚未同步的答案无法计入进度。请打开今天的清单。</p>
       <button class="big" id="reopen">打开今日清单</button>
       <button class="link" id="back">返回基地</button></section>`));
     document.getElementById("reopen").onclick = () => startDailySession();
     document.getElementById("back").onclick = showHome;
   }
 
-  // 服务端返回的 item.status 是权威（迟到设备可能拿到 stage=correction，直接采纳）
-  function markStatus(item, prevStatus) {
-    statusById.set(item.id, item.status);
-    if (item.status === "done" && prevStatus !== "done") completed++;
+  function updateSyncStatus() {
+    const status = study?.sync ?? finishCard?.querySelector("#daily-sync");
+    if (status) {
+      status.hidden = pending.length === 0;
+      status.textContent = pending.some((event) => !event.durable)
+        ? `${pending.length} 个答案待同步，请保持页面打开`
+        : `${pending.length} 个答案待同步`;
+    }
+    if (finishCard) {
+      finishCard.querySelector("h2").textContent = completed === total ? "🛬 着陆成功！" : "还有单词需要练习";
+      finishCard.querySelector("#summary").textContent = `完成 ${completed} 个任务，独立拼对 ${firstRight} 个，获得 ⭐ x ${stars}！`;
+      finishCard.querySelector("#continue").hidden = completed === total;
+    }
   }
 
-  // 条目转入订正：按调度规则排到其他待练词之后（队列尾）；队列空时立即订正
-  function requeueCorrection(itemView) {
-    queue.push(itemView);
-  }
+  nextCard();
+  void dailySync.flush();
 
-  await nextCard();
-
-  async function nextCard() {
+  function nextCard(deferItemId) {
     if (aborted) return;
-    const w = queue.shift();
+    if (deferItemId != null) {
+      deferred.delete(deferItemId);
+      deferred.add(deferItemId);
+    }
+    const queue = remainingItems();
+    const [w] = queue;
+    activeItemId = w?.id;
+    feedbackEventId = undefined;
     if (!w) return finish();
+    void tts.prefetch(queue.slice(0, 3).map((item) => item.term));
     updateProgress();
     spellingCard(w);
   }
 
   function spellingCard(w) {
     const s = ensureStudy();
-    let cardStatus = statusById.get(w.id) ?? "pending";
     let submitted = false; // guard against double Enter / double-tap
     s.play.onclick = () => { speak(w.term); s.inp.focus(); };
     s.meaning.innerHTML = escapeHtml(w.meaning);
@@ -322,22 +421,15 @@ async function runDailySession(opened) {
     s.inp.focus();
     speak(w.term); // 单词出现自动读一次（被拦就静默，🔊 按钮仍可按需读）
 
-    function applyResult(resp, raw) {
-      stars += resp.starsAwarded || 0;
-      const wasDone = cardStatus === "done";
-      markStatus(resp.item, cardStatus);
-      cardStatus = resp.item.status;
-      updateProgress();
-      if (resp.correct === true) {
-        if (!wasDone && resp.stage === "first") firstRight++;
+    function applyResult(correct, raw) {
+      if (correct) {
         streak++;
         const combo = streak >= 3 ? `<span class="combo">🔥 连击 x${streak}</span>` : "";
-        const star = resp.starsAwarded > 0 ? " ⭐" : "";
-        s.fb.innerHTML = `<div><span class="ok">✅ 对！${star}</span>${combo}</div>`;
+        s.fb.innerHTML = `<div><span class="ok">✅ 对！</span>${combo}</div>`;
         sfx.correct();
         // 时序：判定先出 → 读音在静态卡片上播完（不与动画重叠，避免 iOS 机械音
         // 阻塞主线程冻住动画）→ launch 动画送走卡片 → 动画放完才出现下一个词
-        const spoken = speak(resp.item.term);
+        const spoken = speak(w.term);
         Promise.all([delay(500), spoken]).then(async () => {
           if (aborted) return;
           s.wordcard.classList.add("launch");
@@ -346,78 +438,46 @@ async function runDailySession(opened) {
         });
       } else {
         streak = 0;
-        const cmp = diffHtml(resp.item.term.toLowerCase(), String(raw ?? "").toLowerCase());
+        const cmp = diffHtml(w.term.toLowerCase(), raw.toLowerCase());
         s.fb.innerHTML = `<div><span class="bad">🚀 差一点点！正确：<span class="cmp">${cmp}</span></span></div>`;
         s.wordcard.classList.add("shake");
         sfx.wrong();
-        speak(resp.item.term); // 与阅读正确拼写并行；点「下一题」立即打断残留读音
-        if (cardStatus === "correction") requeueCorrection(resp.item);
+        speak(w.term); // 与阅读正确拼写并行；点「下一题」立即打断残留读音
         s.action.textContent = "下一题";
-        actionHandler = () => { if (!aborted) { stopSpeak(); nextCard(); } }; // 孩子操作优先
+        actionHandler = () => { if (!aborted) { stopSpeak(); nextCard(w.id); } };
       }
     }
 
-    async function submitSpell() {
+    function queueAnswer(action, answer) {
+      const eventId = dailySync.enqueue({ day: opened.day, itemId: w.id, action, answer });
+      sessionEvents.add(eventId);
+      feedbackEventId = eventId;
+    }
+
+    function submitSpell() {
       if (submitted) return;
+      if (activeItemId !== w.id || statusById.get(w.id) === "done") return nextCard();
       submitted = true;
       const raw = s.inp.value.trim();
       actionHandler = null; // 反馈期间按钮/Enter 不再响应
-      s.fb.innerHTML = `<div><span class="muted">🛰️ 正在核对…</span></div>`;
-      await recordDailyAnswer({
-        post: postJson,
-        userId: currentUser.id,
-        itemId: w.id,
-        action: "spell",
-        answer: raw,
-        onResult: (resp) => applyResult(resp, raw),
-        onError: () => {
-          // 网络类失败：客户端已用同一 eventId 自动重试过一次，这里允许手动再试
-          submitted = false;
-          s.fb.innerHTML = `<div><span class="bad">😵 网络开小差了，再提交一次吧</span></div>`;
-          s.action.textContent = "提交";
-          actionHandler = submitSpell;
-        },
-        onConflict: () => showStaleDay(), // 过上海午夜：本地不再重试该事件
-      });
+      queueAnswer("spell", raw);
+      applyResult(isCorrect(w, "spell", raw), raw);
     }
 
     // 主动揭示：action='reveal'（首次看答案记 Again；订正中的揭示记一次失败订正）。
     // 揭示后留在本卡，孩子随即把已知答案拼对即完成订正。
     currentReveal = function revealWord() {
       if (submitted) return;
-      submitted = true;
-      actionHandler = null;
+      if (activeItemId !== w.id || statusById.get(w.id) === "done") return nextCard();
       s.reveal.disabled = true;
-      s.fb.innerHTML = `<div><span class="muted">🛰️ 正在记录…</span></div>`;
-      recordDailyAnswer({
-        post: postJson,
-        userId: currentUser.id,
-        itemId: w.id,
-        action: "reveal",
-        onResult: (resp) => {
-          markStatus(resp.item, cardStatus);
-          cardStatus = resp.item.status;
-          updateProgress();
-          s.fb.innerHTML = `<div><span class="muted">👀 答案是：<span class="cmp">${escapeHtml(resp.item.term)}</span></span>
-            <p><small>先记一次小失误，把它拼对就算订正成功！</small></p></div>`;
-          sfx.wrong();
-          speak(resp.item.term);
-          s.inp.value = "";
-          s.spellRender();
-          s.inp.focus();
-          s.action.textContent = "提交";
-          submitted = false; // 立即拼写订正
-          actionHandler = submitSpell;
-        },
-        onError: () => {
-          submitted = false;
-          s.reveal.disabled = false;
-          s.fb.innerHTML = `<div><span class="bad">😵 网络开小差了，稍后再试</span></div>`;
-          s.action.textContent = "提交";
-          actionHandler = submitSpell;
-        },
-        onConflict: () => showStaleDay(),
-      });
+      queueAnswer("reveal", null);
+      s.fb.innerHTML = `<div><span class="muted">👀 答案是：<span class="cmp">${escapeHtml(w.term)}</span></span>
+        <p><small>先记一次小失误，把它拼对就算订正成功！</small></p></div>`;
+      sfx.wrong();
+      speak(w.term);
+      s.inp.value = "";
+      s.spellRender();
+      s.inp.focus();
     };
 
     actionHandler = submitSpell;
@@ -425,15 +485,19 @@ async function runDailySession(opened) {
 
   function finish() {
     study = null; // 本局结束：学习界面随庆祝页整体替换，键盘可以收起
-    const card = $(`<section class="study">
+    finishCard = $(`<section class="study">
       <h2>🛬 着陆成功！</h2>
-      <p>完成 ${completed} 个任务，独立拼对 ${firstRight} 个，获得 ⭐ x ${stars}！</p>
+      <p id="summary"></p>
+      <p class="muted" id="daily-sync" role="status" hidden></p>
+      <button class="big" id="continue" hidden>继续任务</button>
       <button class="big" id="back">返回基地</button>
     </section>`);
     celebrate();
     sfx.finish();
-    card.querySelector("#back").onclick = showHome;
-    render(card);
+    finishCard.querySelector("#back").onclick = returnHome;
+    finishCard.querySelector("#continue").onclick = () => { finishCard = null; nextCard(); };
+    updateSyncStatus();
+    render(finishCard);
   }
 
   function celebrate() {
@@ -662,6 +726,11 @@ async function startMistakeSession() {
       return;
     }
     currentUser = u;
+    let storage;
+    try { storage = window.localStorage; } catch {}
+    dailySync = createDailySync({ userId: u.id, post: postDailySync, storage, locks: navigator.locks });
+    window.addEventListener("online", dailySync.flush);
+    void dailySync.flush();
     await showHome();
   } catch (e) {
     render($(`<section><p class="bad">网络出错了：${escapeHtml(e.message)}</p><button class="big" onclick="location.reload()">重试</button></section>`));
