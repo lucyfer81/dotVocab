@@ -23,6 +23,24 @@ app.route("/api", tts);
 // API 空间内的未知路径/方法统一 JSON 404：不能漏给 SPA 兜底吃掉（会变 200 HTML）。
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
 
+for (const slug of ["xct", "lcl"]) {
+  app.get(`/${slug}`, async (c) => {
+    const pageUrl = new URL("/", c.req.url);
+    const page = await c.env.ASSETS.fetch(new Request(pageUrl));
+    if (!page.ok) return page;
+
+    const response = new HTMLRewriter()
+      .on('link[rel="manifest"]', {
+        element(element) {
+          element.setAttribute("href", `/manifest-${slug}.json`);
+        },
+      })
+      .transform(page);
+    response.headers.delete("ETag");
+    return response;
+  });
+}
+
 // Fallback: serve static assets for everything else.
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 

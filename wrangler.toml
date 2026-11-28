@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/xct", "/lcl"]
 
 [[d1_databases]]
 binding = "DB"
