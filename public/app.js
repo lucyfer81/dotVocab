@@ -55,9 +55,6 @@ function waitForLaunch(el) {
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-// 教材单元显示名：与家长后台同一约定（unit=0 为 Starter）
-const unitName = (n) => (Number(n) === 0 ? "Starter" : `Unit ${n}`);
-
 // 加练的本地判定：按服务端下发的 accepted（别名表）trim+小写全等比较；
 // accepted 缺失时退回 term 本身。与每日作答的服务端判定同一归一规则。
 function judgeAccepted(accepted, term, ans) {
@@ -127,8 +124,6 @@ async function showHome() {
       <div class="stat">🚀 ${daily ? `${daily.done}/${daily.total}` : "—"}</div></div>
     <button class="big" id="review"></button>
     <button class="big" id="mistakes"></button>
-    <h2>🪐 选择星球关卡</h2>
-    <div class="units"></div>
   </section>`);
   wrap.querySelector("#switch").onclick = () => { location.href = "/"; };
 
@@ -146,31 +141,12 @@ async function showHome() {
   const mb = wrap.querySelector("#mistakes");
   if (home.mistakeCount > 0) {
     mb.textContent = `📒 错词本 (${home.mistakeCount})`;
-    mb.onclick = () => startPracticeSession({ mode: "mistake", title: "错词本" });
+    mb.onclick = startMistakeSession;
   } else {
     mb.textContent = "📒 错词本 · 太棒了，没有错词！";
     mb.disabled = true;
   }
 
-  const ul = wrap.querySelector(".units");
-  if (!home.units.length) {
-    ul.appendChild($(`<p class="muted">还没有开放的单元，请家长在后台把新单元加入共享池 🪐</p>`));
-  }
-  const grouped = {};
-  home.units.forEach((u) => {
-    const key = u.bookTitle || u.book;
-    (grouped[key] = grouped[key] || []).push(u);
-  });
-  Object.keys(grouped).sort().forEach((book) => {
-    const sec = $(`<div><h3>${escapeHtml(book)}</h3><div class="grid"></div></div>`);
-    grouped[book].forEach((u) => {
-      const card = $(`<button class="card unit"><div>${escapeHtml(unitName(u.unit))}</div>
-        <div class="bar" style="--pct:${u.pct}%"><i style="width:${u.pct}%"></i></div><small>${u.covered}/${u.total} · ${u.pct}%</small></button>`);
-      card.onclick = () => startPracticeSession({ mode: "unit", unit_id: u.unitId, title: `${book} · ${unitName(u.unit)}` });
-      sec.querySelector(".grid").appendChild(card);
-    });
-    ul.appendChild(sec);
-  });
   render(wrap);
 }
 
@@ -478,27 +454,26 @@ async function runDailySession(opened) {
   }
 }
 
-// ---------- 自主加练：单元练习 / 错词本 ----------
-// 数据源是新世界接口（/unit-words、/mistakes），判定在客户端本地按 accepted
+// ---------- 自主加练：错词本 ----------
+// 词条来自 /mistakes，判定在客户端本地按 accepted
 // 别名表进行；练习日志经 recordPracticeAnswer 走 /review sense 路径——
 // 不调 /daily/answer、不写 user_cards（不改 FSRS）、不完成每日条目。
-async function startPracticeSession({ mode, unit_id, title }) {
+async function startMistakeSession() {
   tts.unlock();
+  const title = "错词本";
   let words;
   try {
-    if (mode === "mistake") words = await api(`/mistakes?user_id=${currentUser.id}`);
-    else words = await api(`/unit-words?unit_id=${unit_id}`);
+    words = await api(`/mistakes?user_id=${currentUser.id}`);
   } catch (e) {
-    renderLoadError(title || "自主加练", e);
+    renderLoadError(title, e);
     return;
   }
   if (words.length === 0) {
-    render($(`<section><h2>${escapeHtml(title || "自主加练")}</h2><p>这里暂时没有可以练的词 🎉</p>
+    render($(`<section><h2>${title}</h2><p>这里暂时没有可以练的词 🎉</p>
       <button class="big" id="back">返回基地</button></section>`));
     document.getElementById("back").onclick = showHome;
     return;
   }
-  const source = mode === "mistake" ? "mistake" : "unit";
   const queue = shuffle(words.slice());
   tts.prefetch(queue.map((w) => w.term)); // 预热音频缓存（失败静默）
   const retry = [];
@@ -537,7 +512,7 @@ async function startPracticeSession({ mode, unit_id, title }) {
 
   function ensureStudy() {
     if (study) return study;
-    const card = buildStudyCard(title || "自主加练", false);
+    const card = buildStudyCard(title, false);
     card.querySelector("#quit").onclick = quitSession;
     const keepFocus = (e) => e.preventDefault();
     card.querySelector("#play").addEventListener("pointerdown", keepFocus);
@@ -596,7 +571,7 @@ async function startPracticeSession({ mode, unit_id, title }) {
           userId: currentUser.id,
           senseId: w.senseId,
           correct,
-          source,
+          source: "mistake",
           answer: correct ? undefined : raw,
           onError: () => showToast("😵 网络开小差了，刚才的进度可能没存上", "bad"),
         });
@@ -638,7 +613,7 @@ async function startPracticeSession({ mode, unit_id, title }) {
     const practice = dropped.length
       ? `<div class="dropped"><p>💪 这几个词还有点难，点一点再听一遍：</p>
          <p class="dropped-words">${dropped.map((w) => `<button class="link wterm" data-term="${escapeHtml(w.term)}">🔊 ${escapeHtml(w.term)}</button>`).join("")}</p>
-         <p><small>回基地后从错词本或星球关卡可以再练它们！</small></p></div>`
+         <p><small>回基地后可以打开错词本再练！</small></p></div>`
       : "";
     const card = $(`<section class="study">
       <h2>🛬 练习完成！</h2>

@@ -63,23 +63,13 @@ h1,h2,h3 { margin:0.4em 0; }
 .card.user:active { box-shadow:0 1px 0 #9c6b0a; }
 .avatar { font-size:42px; }
 
-/* 星球关卡卡：5 色轮换，像五颗行星 */
-.card.unit { text-align:left; color:#1f2937; }
-.card.unit:nth-child(5n+1) { background:linear-gradient(180deg,#ffd9c9,#ffb59e); box-shadow:0 5px 0 #b25b3c; }
-.card.unit:nth-child(5n+2) { background:linear-gradient(180deg,#dfe6f5,#b9cdf0); box-shadow:0 5px 0 #5471a8; }
-.card.unit:nth-child(5n+3) { background:linear-gradient(180deg,#d7f7e4,#a9ecc8); box-shadow:0 5px 0 #3e9e6e; }
-.card.unit:nth-child(5n+4) { background:linear-gradient(180deg,#fdeeb8,#f8d978); box-shadow:0 5px 0 #b08a1e; }
-.card.unit:nth-child(5n+5) { background:linear-gradient(180deg,#e6d6f7,#cbb1ef); box-shadow:0 5px 0 #7a56ad; }
-.card.unit:active { box-shadow:0 1px 0 rgba(0,0,0,.3); }
-
 /* 火箭轨道进度条：青色轨道 + 🚀 停在进度处（--pct 由 JS 内联） */
-.bar, .progress { position:relative; height:8px; background:rgba(255,255,255,.28); border-radius:4px; margin:6px 0; overflow:visible; }
-.bar i, .progress i { display:block; height:100%; background:var(--pri); border-radius:4px; transition:width .3s; }
-.bar::after, .progress::after {
+.progress { position:relative; height:10px; background:rgba(255,255,255,.28); border-radius:4px; margin:8px 0; overflow:visible; }
+.progress i { display:block; height:100%; background:var(--pri); border-radius:4px; transition:width .3s; }
+.progress::after {
   content:"🚀"; position:absolute; top:50%; left:var(--pct, 0%);
   transform:translate(-50%, -50%); font-size:15px; line-height:1;
 }
-.progress { height:10px; margin:8px 0; }
 
 /* 学习区：拼写输入 */
 .study input { width:100%; padding:14px; font-size:22px; border:2px solid #cbd5e1; border-radius:12px; background:#fff; color:#1f2937; }
