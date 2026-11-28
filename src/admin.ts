@@ -4,6 +4,7 @@ import { adminAuth } from "./auth";
 import { parseWordCsv } from "./csv";
 import { DAILY_ITEM_COUNTS_SQL, dayStr } from "./daily-list";
 import { parseJsonBody } from "./http";
+import { readParentDashboard } from "./parent-dashboard";
 import { POOL_SENSES_SQL, readVocabulary } from "./vocabulary";
 
 const admin = new Hono<{ Bindings: Env }>();
@@ -156,6 +157,16 @@ admin.get("/progress", async (c) => {
     daily: day === null ? null : { day, limit: dailyLimit, total, done, correction, pending },
     pool: { practiced, total: poolTotal },
   })));
+});
+
+admin.get("/dashboard/:userId", async (c) => {
+  const userId = Number(c.req.param("userId"));
+  if (!Number.isSafeInteger(userId) || userId <= 0) return c.json({ error: "孩子编号无效" }, 400);
+
+  const dashboard = await readParentDashboard(c.env.DB, userId, Date.now());
+  if (!dashboard) return c.json({ error: "孩子不存在" }, 404);
+  c.header("Cache-Control", "no-store");
+  return c.json(dashboard);
 });
 
 admin.get("/vocabulary/:userId", async (c) => {

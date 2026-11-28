@@ -25,8 +25,82 @@ const catalog = async () => (await request("curriculum")).json<{
   quotas: {userId: number; name: string; limit: number}[];
 }>();
 
-it.each([["curriculum","GET"], ["pool","POST"], ["quota","PUT"], ["progress","GET"], ["vocabulary/1","GET"]])("%s 需要管理凭据", async (path, method) => {
+it.each([["curriculum","GET"], ["pool","POST"], ["quota","PUT"], ["progress","GET"], ["dashboard/1","GET"], ["vocabulary/1","GET"]])("%s 需要管理凭据", async (path, method) => {
   expect((await request(path, method, undefined, false)).status).toBe(401);
+});
+
+it("家长面板按清单归属日统计首答、订正配对和开放池预测", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-29T16:15:00Z"));
+  try {
+    const tomorrowEnd = Date.parse("2026-12-01T23:59:59.999+08:00");
+    await db.batch([
+      db.prepare(`INSERT INTO curriculum_senses VALUES
+        ('river','bank','河岸','[]'),('money','bank','银行','[]'),('closed','pear','梨','[]'),
+        ('pending','apple','苹果','[]')`),
+      db.prepare(`INSERT INTO curriculum_unit_senses VALUES
+        (2,'river',1),(3,'river',1),(3,'money',2),(5,'closed',1)`),
+      db.prepare("INSERT INTO pool_units VALUES (2),(3)"),
+      db.prepare("INSERT INTO user_quotas VALUES (1,15)"),
+      db.prepare(`INSERT INTO user_cards VALUES
+        (1,'river',?1,'{}'),(1,'money',?2,'{}'),(1,'closed',0,'{}'),(2,'river',0,'{}')`)
+        .bind(tomorrowEnd, tomorrowEnd + 1),
+      db.prepare(`INSERT INTO daily_lists VALUES
+        (10,1,'2026-10-31',10,'outside-30-days'),(11,1,'2026-11-01',10,'old-week'),
+        (12,1,'2026-11-23',10,'outside-7-days'),(13,1,'2026-11-24',10,'first'),
+        (14,1,'2026-11-25',10,'skipped'),(15,1,'2026-11-26',10,'second'),
+        (16,1,'2026-11-30',10,'today'),(17,1,'2026-12-01',10,'future'),
+        (18,2,'2026-11-30',10,'sibling-empty')`),
+      db.prepare(`INSERT INTO daily_items (id,list_id,sense_id,position,kind,status,first_event_id) VALUES
+        (100,10,'river',0,'new','done','too-old'),(101,11,'money',0,'due','done','old'),
+        (102,12,'money',0,'due','done','outside-week'),(103,13,'river',0,'new','done','wrong'),
+        (104,14,'river',0,'due','pending',NULL),(105,15,'river',0,'due','done','reveal'),
+        (106,16,'river',0,'due','done','right'),(107,16,'money',1,'new','done','waiting'),
+        (108,16,'closed',2,'due','correction','unfixed'),(109,17,'money',0,'due','done','future'),
+        (110,16,'pending',3,'due','pending',NULL)`),
+      db.prepare(`INSERT INTO answer_events (event_id,user_id,sense_id,item_id,source,action,correct,created_at)
+        SELECT first_event_id,1,sense_id,id,'daily',CASE WHEN id = 105 THEN 'reveal' ELSE 'spell' END,
+          CASE WHEN id IN (101,102,106,109) THEN 1 ELSE 0 END, ?1
+        FROM daily_items WHERE first_event_id IS NOT NULL`).bind(Date.now()),
+      db.prepare(`INSERT INTO answer_events (event_id,user_id,sense_id,item_id,source,action,correct,created_at) VALUES
+        ('retry-wrong',1,'river',103,'daily','spell',0,0),('retry-right',1,'river',103,'daily','spell',1,0),
+        ('extra-right',1,'river',NULL,'unit','spell',1,0)`),
+    ]);
+
+    const res = await request("dashboard/1");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({
+      today: { total: 4, done: 2, correction: 1, pending: 1, due: 3, new: 1 },
+      recentReview: { correct: 1, total: 3 },
+      repeatedMistakes: [{ senseId: "river", term: "bank", meaning: "河岸", errorDays: 2,
+        latestDay: "2026-11-30", latestCorrect: 1 }],
+      correctionReview: { completed: 3, total: 2, correct: 1, waiting: 1 },
+      tomorrow: { due: 1, quota: 15, scheduled: 1 },
+      weeks: [
+        { start: "2026-10-12", current: false, correct: 0, total: 0 },
+        { start: "2026-10-19", current: false, correct: 0, total: 0 },
+        { start: "2026-10-26", current: false, correct: 1, total: 1 },
+        { start: "2026-11-02", current: false, correct: 0, total: 0 },
+        { start: "2026-11-09", current: false, correct: 0, total: 0 },
+        { start: "2026-11-16", current: false, correct: 0, total: 0 },
+        { start: "2026-11-23", current: false, correct: 1, total: 2 },
+        { start: "2026-11-30", current: true, correct: 1, total: 2 },
+      ],
+    });
+    expect(await (await request("dashboard/2")).json()).toMatchObject({
+      today: { total: 0 }, recentReview: { correct: 0, total: 0 }, repeatedMistakes: [],
+      correctionReview: { completed: 0, total: 0, correct: 0, waiting: 0 },
+      tomorrow: { due: 1, quota: 10, scheduled: 1 },
+    });
+    await db.prepare("DELETE FROM daily_lists WHERE id = 18").run();
+    expect(await (await request("dashboard/2")).json()).toMatchObject({ today: null });
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM daily_lists WHERE user_id = 2").first("n")).toBe(0);
+    expect((await request("dashboard/0")).status).toBe(400);
+    expect((await request("dashboard/999")).status).toBe(404);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 it("混有不存在的单元时整批拒绝", async () => {
   expect((await request("pool","POST",{unitIds:[2,999]})).status).toBe(400);

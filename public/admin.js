@@ -1,4 +1,5 @@
 import { showConfirm, showToast } from "./ui.js";
+import { setupParentDashboard } from "./admin-dashboard.js";
 import { vocabularyPage } from "./admin-vocabulary.js";
 
 const API = "/api/admin";
@@ -97,6 +98,7 @@ function poolPanel({books, quotas}, refreshProgress) {
         await api("/quota",{method:"PUT",body:JSON.stringify({userId:q.userId,limit:Number(limit.value)})});
         q.limit = Number(limit.value);
         result.textContent = `${q.name}的每日配额已保存。`;
+        await refreshProgress();
       } catch (e) { limit.value = q.limit; result.textContent = e.message; }
       finally { limit.disabled = false; }
     };
@@ -105,31 +107,16 @@ function poolPanel({books, quotas}, refreshProgress) {
   return panel;
 }
 
-function drawProgress(container, users) {
-  container.innerHTML = users.map(({ id, avatar, name, daily, pool, stars, streak_days }) => {
-    let today = "尚未开始";
-    if (daily) {
-      today = daily.total === 0 ? "今日无任务" : `
-        <strong>${daily.done === daily.total ? "已完成" : "完成"} ${daily.done}/${daily.total}</strong>
-        <progress aria-label="${esc(name)}的今日任务完成进度" value="${daily.done}" max="${daily.total}"></progress>
-        <span class="muted">待订正 ${daily.correction} · 未作答 ${daily.pending}</span>`;
-    }
-    return `<article class="progress-card">
-      <h3>${esc(avatar)} ${esc(name)}</h3>
-      <div class="daily-progress"><b>今日任务</b> ${today}</div>
-      <p>共享池覆盖 · ${pool.total ? `已练过 ${pool.practiced}/${pool.total} 个词义` : "暂无词义"}</p>
-      <p class="muted">星星 ${stars} · 连续学习 ${streak_days} 天</p>
-      <p><a class="link" href="?vocabulary=${encodeURIComponent(id)}" aria-label="查看${esc(name)}的词汇掌握">查看词汇掌握</a></p>
-    </article>`;
-  }).join("");
-}
-
-async function dashboard() {
-  const [curriculum, units, words, progress] = await Promise.all([api("/curriculum"), api("/units"), api("/words"), api("/progress")]);
+async function dashboard(selectedId) {
+  const [curriculum, units, words] = await Promise.all([api("/curriculum"), api("/units"), api("/words")]);
+  const children = curriculum.quotas.map(({ userId, name }) => ({ id: userId, name }));
   const wrap = $(`<section>
     <header class="top"><h1>家长后台</h1><button class="link" id="out">退出</button></header>
     <section id="progress-panel">
-      <h2>学习进度</h2><div id="prog" class="progress-grid"></div>
+      <h2>学习进度</h2>
+      <label for="dashboard-child">选择孩子</label>
+      <select id="dashboard-child"></select>
+      <div id="dashboard-stats"></div>
     </section>
     <h2>重置学习记录</h2>
     <div id="reset">
@@ -158,19 +145,10 @@ async function dashboard() {
       </div>
     </div>
   </section>`);
-  const progressList = wrap.querySelector("#prog");
-  let progressRequest = 0;
-  const refreshProgress = async () => {
-    const request = ++progressRequest;
-    try {
-      const users = await api("/progress");
-      if (request === progressRequest) drawProgress(progressList, users);
-    } catch {
-      if (request === progressRequest) showToast("进度刷新失败，请重新加载页面。", "bad");
-    }
-  };
-  drawProgress(progressList, progress);
-  wrap.querySelector("#progress-panel").after(poolPanel(curriculum, refreshProgress));
+  const progressPanel = wrap.querySelector("#progress-panel");
+  const childSelect = progressPanel.querySelector("#dashboard-child");
+  const refreshProgress = setupParentDashboard(progressPanel, children, api, selectedId);
+  progressPanel.after(poolPanel(curriculum, refreshProgress));
   wrap.querySelector("#out").onclick = () => { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(); };
   const sel = wrap.querySelector("#target");
   units.forEach(u => { const o=document.createElement("option"); o.value=u.id; o.textContent=`${u.book} · ${u.unit}`; sel.appendChild(o); });
@@ -187,27 +165,27 @@ async function dashboard() {
     }
     try {
       await api("/units", { method: "POST", body: JSON.stringify(body) });
-      dashboard();
+      await dashboard(childSelect.value);
     } catch (e) { showToast(e.message, "bad"); }
   };
   wrap.querySelector("#imp").onclick = async () => {
     try {
       const r = await api("/import",{method:"POST",body:JSON.stringify({unit_id:Number(sel.value),csv:wrap.querySelector("#csv").value})});
       wrap.querySelector("#impresult").textContent = JSON.stringify(r);
-      dashboard();
+      await dashboard(childSelect.value);
     } catch(e){ wrap.querySelector("#impresult").textContent = e.message; }
   };
   // ---- 重置进度面板 ----
   const rUser = wrap.querySelector("#r_user");
   const resetButton = wrap.querySelector("#r_go");
   const resetResult = wrap.querySelector("#r_result");
-  progress.forEach(u => rUser.add(new Option(`${u.avatar} ${u.name}`, u.id)));
+  children.forEach(u => rUser.add(new Option(u.name, u.id)));
   rUser.onchange = () => {
     resetButton.disabled = !rUser.value;
     resetResult.textContent = "";
   };
   resetButton.onclick = async () => {
-    const user = progress.find(u => u.id === Number(rUser.value));
+    const user = children.find(u => u.id === Number(rUser.value));
     if (!user) return;
     rUser.disabled = resetButton.disabled = true;
     try {
@@ -311,5 +289,6 @@ async function dashboard() {
   wsearch.oninput = () => { query = wsearch.value; renderWordList(); };
   renderWordList();
   render(wrap);
+  await refreshProgress();
 }
 boot();

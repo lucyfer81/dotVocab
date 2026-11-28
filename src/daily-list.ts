@@ -33,7 +33,7 @@ export const DAILY_ITEM_COUNTS_SQL = `
 // 上海当日 23:59:59.999 的 epoch ms。
 // Asia/Shanghai 固定 UTC+8（1991 年后无夏令时），用带 +08:00 偏移的 ISO 串
 // 解析，避免手写偏移算术。
-function dayEndMs(day: string): number {
+export function dayEndMs(day: string): number {
   return Date.parse(`${day}T23:59:59.999+08:00`);
 }
 
