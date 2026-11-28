@@ -48,6 +48,19 @@ function deserializeState(state: string): Card {
   return card;
 }
 
+export function cardStage(state: string): "learning" | "relearning" | "review" | "unknown" {
+  try {
+    switch (deserializeState(state).state) {
+      case State.Learning: return "learning";
+      case State.Relearning: return "relearning";
+      case State.Review: return "review";
+      default: return "unknown";
+    }
+  } catch {
+    return "unknown";
+  }
+}
+
 // previous=null → 从库的空卡开始（不从旧 reps 伪造卡片）。
 // 使用库默认调度参数；显式传入 nowMs，不使用库的默认"现在"。
 export function advanceCard(

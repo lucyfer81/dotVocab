@@ -16,12 +16,19 @@
 //   单元重复只占一个名额（保留按教材顺序的首次出现位置）。
 //   配额在生成时读取并随清单头固化，之后修改配额不影响已生成清单。
 
-const TIME_ZONE = "Asia/Shanghai";
+const SHANGHAI_DATE = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" });
 
 // en-CA 输出 YYYY-MM-DD。kid.ts 的 applyReviewStats 复用本函数。
 export function dayStr(ms: number): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(new Date(ms));
+  return SHANGHAI_DATE.format(new Date(ms));
 }
+
+// 孩子首页和家长后台共用。i 是清单 LEFT JOIN 的条目，空清单的各项计数均为 0。
+export const DAILY_ITEM_COUNTS_SQL = `
+  COUNT(i.id) AS total,
+  COUNT(CASE WHEN i.status = 'done' THEN 1 END) AS done,
+  COUNT(CASE WHEN i.status = 'correction' THEN 1 END) AS correction,
+  COUNT(CASE WHEN i.status = 'pending' THEN 1 END) AS pending`;
 
 // 上海当日 23:59:59.999 的 epoch ms。
 // Asia/Shanghai 固定 UTC+8（1991 年后无夏令时），用带 +08:00 偏移的 ISO 串

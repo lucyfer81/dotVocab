@@ -1,4 +1,5 @@
 import { showConfirm, showToast } from "./ui.js";
+import { vocabularyPage } from "./admin-vocabulary.js";
 
 const API = "/api/admin";
 let token = localStorage.getItem("dotvocab_admin_token") || "";
@@ -8,7 +9,11 @@ async function api(path, opts = {}) {
     headers: { "content-type": "application/json", "x-admin-token": token, ...(opts.headers || {}) },
     ...opts,
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "请求失败");
+  if (!res.ok) {
+    const error = new Error((await res.json().catch(() => ({}))).error || "请求失败");
+    error.status = res.status;
+    throw error;
+  }
   return res.json();
 }
 function $(html){const t=document.createElement("template");t.innerHTML=html.trim();return t.content.firstElementChild;}
@@ -17,7 +22,13 @@ function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&l
 
 async function boot() {
   if (!token) return loginView();
-  try { await dashboard(); } catch (e) { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(e.message); }
+  try { await openAdminView(); } catch (e) { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(e.message); }
+}
+
+async function openAdminView() {
+  const userId = new URLSearchParams(location.search).get("vocabulary");
+  if (userId === null) return dashboard();
+  render(await vocabularyPage(api, userId));
 }
 
 function loginView(msg) {
@@ -27,12 +38,12 @@ function loginView(msg) {
   card.querySelector("#go").onclick = async () => {
     token = card.querySelector("#tok").value.trim();
     localStorage.setItem("dotvocab_admin_token", token);
-    try { await dashboard(); } catch (e) { loginView(e.message); }
+    try { await openAdminView(); } catch (e) { loginView(e.message); }
   };
   render(card);
 }
 
-function poolPanel({books, quotas}) {
+function poolPanel({books, quotas}, refreshProgress) {
   const panel = $(`<section><h2>共享学习池</h2><div class="pool-summary"></div>
     <label>选择教材 <select class="books"></select></label>
     <fieldset><legend>选择要开放的单元（可多选）</legend><div class="units"></div></fieldset>
@@ -70,6 +81,7 @@ function poolPanel({books, quotas}) {
       book.units.forEach(u => { if (unitIds.includes(u.id)) u.open = true; });
       draw();
       result.textContent = `已加入 ${unitIds.length} 个单元。`;
+      await refreshProgress();
     } catch (e) { result.textContent = e.message; add.disabled = false; }
     finally { panel.querySelector("fieldset").disabled = select.disabled = false; }
   };
@@ -93,19 +105,38 @@ function poolPanel({books, quotas}) {
   return panel;
 }
 
-async function dashboard(flash) {
+function drawProgress(container, users) {
+  container.innerHTML = users.map(({ id, avatar, name, daily, pool, stars, streak_days }) => {
+    let today = "尚未开始";
+    if (daily) {
+      today = daily.total === 0 ? "今日无任务" : `
+        <strong>${daily.done === daily.total ? "已完成" : "完成"} ${daily.done}/${daily.total}</strong>
+        <progress aria-label="${esc(name)}的今日任务完成进度" value="${daily.done}" max="${daily.total}"></progress>
+        <span class="muted">待订正 ${daily.correction} · 未作答 ${daily.pending}</span>`;
+    }
+    return `<article class="progress-card">
+      <h3>${esc(avatar)} ${esc(name)}</h3>
+      <div class="daily-progress"><b>今日任务</b> ${today}</div>
+      <p>共享池覆盖 · ${pool.total ? `已练过 ${pool.practiced}/${pool.total} 个词义` : "暂无词义"}</p>
+      <p class="muted">星星 ${stars} · 连续学习 ${streak_days} 天</p>
+      <p><a class="link" href="?vocabulary=${encodeURIComponent(id)}" aria-label="查看${esc(name)}的词汇掌握">查看词汇掌握</a></p>
+    </article>`;
+  }).join("");
+}
+
+async function dashboard() {
   const [curriculum, units, words, progress] = await Promise.all([api("/curriculum"), api("/units"), api("/words"), api("/progress")]);
   const wrap = $(`<section>
     <header class="top"><h1>家长后台</h1><button class="link" id="out">退出</button></header>
-    <h2>进度</h2><div id="prog"></div>
-    <h2>重置进度</h2>
+    <section id="progress-panel">
+      <h2>学习进度</h2><div id="prog" class="progress-grid"></div>
+    </section>
+    <h2>重置学习记录</h2>
     <div id="reset">
-      <select id="r_scope"><option value="unit">按单元</option><option value="book">按课本</option><option value="global">全局</option></select>
-      <select id="r_target"></select>
-      <select id="r_user"></select>
-      <label class="r_deep"><input type="checkbox" id="r_deep" /> 同时重置掌握度与星星/连击</label>
-      <button class="big" id="r_go">重置进度</button>
-      <pre id="r_result" class="muted"></pre>
+      <label for="r_user">选择孩子</label>
+      <select id="r_user"><option value="" disabled selected>请选择</option></select>
+      <button class="big" id="r_go" disabled>重置该孩子全部学习记录</button>
+      <p id="r_result" class="muted" role="status"></p>
     </div>
     <div class="admin-cols">
       <div class="admin-left">
@@ -127,10 +158,20 @@ async function dashboard(flash) {
       </div>
     </div>
   </section>`);
-  wrap.querySelector("header").after(poolPanel(curriculum));
+  const progressList = wrap.querySelector("#prog");
+  let progressRequest = 0;
+  const refreshProgress = async () => {
+    const request = ++progressRequest;
+    try {
+      const users = await api("/progress");
+      if (request === progressRequest) drawProgress(progressList, users);
+    } catch {
+      if (request === progressRequest) showToast("进度刷新失败，请重新加载页面。", "bad");
+    }
+  };
+  drawProgress(progressList, progress);
+  wrap.querySelector("#progress-panel").after(poolPanel(curriculum, refreshProgress));
   wrap.querySelector("#out").onclick = () => { token=""; localStorage.removeItem("dotvocab_admin_token"); loginView(); };
-  wrap.querySelector("#prog").innerHTML = progress.map(u =>
-    `<div class="stat">${esc(u.avatar)} ${esc(u.name)} — ⭐${u.stars} 🔥${u.streak_days} 已学词${u.mastered}</div>`).join("");
   const sel = wrap.querySelector("#target");
   units.forEach(u => { const o=document.createElement("option"); o.value=u.id; o.textContent=`${u.book} · ${u.unit}`; sel.appendChild(o); });
   wrap.querySelector("#addunit").onclick = async () => {
@@ -158,47 +199,32 @@ async function dashboard(flash) {
   };
   // ---- 重置进度面板 ----
   const rUser = wrap.querySelector("#r_user");
-  progress.forEach(u => { const o = document.createElement("option"); o.value = u.id; o.textContent = `${u.avatar} ${u.name}`; rUser.appendChild(o); });
-  const rBoth = document.createElement("option"); rBoth.value = "all"; rBoth.textContent = "两个孩子"; rUser.appendChild(rBoth);
-
-  const rScope = wrap.querySelector("#r_scope");
-  const rTarget = wrap.querySelector("#r_target");
-  function fillResetTarget() {
-    rTarget.innerHTML = "";
-    if (rScope.value === "global") { rTarget.style.display = "none"; return; }
-    rTarget.style.display = "";
-    const items = rScope.value === "unit"
-      ? units.map(u => ({ value: u.id, label: `${u.book} · ${u.unit}` }))
-      : [...new Set(units.map(u => u.book))].map(b => ({ value: b, label: b }));
-    items.forEach(it => { const o = document.createElement("option"); o.value = it.value; o.textContent = it.label; rTarget.appendChild(o); });
-  }
-  rScope.onchange = fillResetTarget;
-  fillResetTarget();
-
-  wrap.querySelector("#r_go").onclick = async () => {
-    const userVal = rUser.value;
-    const user_ids = userVal === "all" ? progress.map(u => u.id) : [Number(userVal)];
-    const userLabel = userVal === "all" ? "两个孩子" : (progress.find(u => String(u.id) === userVal)?.name || "");
-    const deep = wrap.querySelector("#r_deep").checked;
-    const body = { scope: rScope.value, user_ids };
-    if (deep) body.deep = true;
-    let targetLabel = "全局";
-    if (rScope.value === "unit") { body.unit_id = Number(rTarget.value); targetLabel = rTarget.selectedOptions[0]?.textContent || ""; }
-    else if (rScope.value === "book") { body.book = rTarget.value; targetLabel = rTarget.value; }
-    if (!await showConfirm({
-      title: "重置进度",
-      message: deep
-        ? `确定深度重置「${targetLabel}」的 ${userLabel} 吗？\n单元覆盖记录、范围内单词的掌握度将清除，星星与连击全部归零，单词回到新词状态。`
-        : `确定重置「${targetLabel}」的 ${userLabel} 单元覆盖进度吗？\n相关单词会重新出现；已学词与星星保留。`,
-      okText: "确认重置",
-      danger: true,
-    })) return;
+  const resetButton = wrap.querySelector("#r_go");
+  const resetResult = wrap.querySelector("#r_result");
+  progress.forEach(u => rUser.add(new Option(`${u.avatar} ${u.name}`, u.id)));
+  rUser.onchange = () => {
+    resetButton.disabled = !rUser.value;
+    resetResult.textContent = "";
+  };
+  resetButton.onclick = async () => {
+    const user = progress.find(u => u.id === Number(rUser.value));
+    if (!user) return;
+    rUser.disabled = resetButton.disabled = true;
     try {
-      const r = await api("/reset-progress", { method: "POST", body: JSON.stringify(body) });
-      dashboard(deep
-        ? `已重置 ${r.deleted} 条覆盖记录、${r.state_deleted} 条掌握度记录${r.stats_reset ? "，星星/连击已归零" : ""}`
-        : `已重置 ${r.deleted} 条覆盖记录`);
-    } catch (e) { wrap.querySelector("#r_result").textContent = e.message; }
+      if (!await showConfirm({
+        title: "重置全部学习记录",
+        message: `确定重置 ${user.name} 的全部学习记录吗？\n将清除复习卡片、每日任务、作答和错词记录，并将星星与连续学习天数归零。`,
+        okText: "确认重置",
+        danger: true,
+      })) return;
+      await api("/reset-progress", {
+        method: "POST",
+        body: JSON.stringify({ scope: "global", user_ids: [user.id], deep: true }),
+      });
+      resetResult.textContent = `已重置 ${user.name} 的全部学习记录。`;
+      await refreshProgress();
+    } catch (e) { resetResult.textContent = e.message; }
+    finally { rUser.disabled = resetButton.disabled = false; }
   };
   // ---- 词库：搜索 + 行内编辑 + 删除 ----
   const wlist = wrap.querySelector("#wlist");
@@ -284,7 +310,6 @@ async function dashboard(flash) {
 
   wsearch.oninput = () => { query = wsearch.value; renderWordList(); };
   renderWordList();
-  if (flash) wrap.querySelector("#r_result").textContent = flash;
   render(wrap);
 }
 boot();

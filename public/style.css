@@ -180,6 +180,26 @@ body.admin input:not([type="checkbox"]), body.admin select, body.admin textarea 
 body.admin .units { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 body.admin .units label { display: flex; align-items: center; gap: 6px; }
 body.admin .units input[type="checkbox"] { flex-shrink: 0; margin: 0; }
+.progress-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; margin-bottom: 20px; }
+.progress-card { padding: 14px 16px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
+.progress-card h3 { margin: 0 0 10px; }
+.progress-card p { margin: 10px 0 0; }
+.progress-card .muted { font-size: 14px; }
+.daily-progress progress { display: block; width: 100%; height: 12px; margin: 6px 0 4px; accent-color: #2563eb; }
+.vocabulary-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px 12px; margin: 16px 0; }
+.vocabulary-stages { display: flex; flex-wrap: wrap; gap: 8px; }
+.vocabulary-stages button { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; color: inherit; font: inherit; cursor: pointer; }
+.vocabulary-stages [aria-pressed="true"] { border-color: #2563eb; background: #2563eb; color: #fff; }
+.vocabulary-list, .vocabulary-locations { list-style: none; margin: 0; padding: 0; }
+.vocabulary-list { display: grid; gap: 8px; }
+.vocabulary-word { display: grid; gap: 6px; padding: 12px 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; overflow-wrap: anywhere; }
+.vocabulary-word-main strong { font-size: 18px; margin-right: 6px; }
+.vocabulary-word-meta, .vocabulary-locations { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 14px; }
+.vocabulary-stage, .vocabulary-locations li { padding: 2px 8px; border-radius: 6px; background: #f1f5f9; }
+.vocabulary-stage[data-stage="learning"] { background: #eff6ff; color: #1e40af; }
+.vocabulary-stage[data-stage="relearning"], .vocabulary-due { color: #9a3412; }
+.vocabulary-stage[data-stage="relearning"] { background: #ffedd5; }
+.vocabulary-stage[data-stage="review"] { background: #dcfce7; color: #166534; }
 .pool-summary { margin: 12px 0 16px; }
 .pool-summary h3 { font-size: 16px; margin: 0 0 8px; }
 .pool-summary dl { display: grid; gap: 8px; margin: 0; }
@@ -195,8 +215,6 @@ body.admin .units input[type="checkbox"] { flex-shrink: 0; margin: 0; }
 .wrow .wbtns { flex-shrink: 0; }
 .wrow .wbtns .link { margin-left: 8px; }
 .wedit { background: #eff6ff; border-radius: 12px; padding: 10px 14px; margin: 8px 0; text-align: left; }
-.r_deep { display: flex; align-items: center; gap: 6px; margin: 6px 0; text-align: left; }
-.r_deep input { width: auto; margin: 0; }
 
 /* ---------- 应用内弹窗 + 提示条：替代浏览器原生 confirm/alert ---------- */
 .modal-root { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:24px; }
@@ -230,7 +248,6 @@ body.admin .toast { background:#1f2937; color:#f9fafb; border-color:rgba(0,0,0,.
 body.admin { background:#fff7ed; color:#1f2937; }
 body.admin::before { display:none; }
 body.admin .muted { color:#6b7280; }
-body.admin .stat { background:#fff; border:0; color:#1f2937; }
 body.admin .big { background:#2563eb; color:#fff; box-shadow:none; }
 body.admin .big:active { transform:none; }
 body.admin .link { color:#2563eb; }

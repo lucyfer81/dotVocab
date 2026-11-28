@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "./index";
 import { updateSrs, emptyState, type SrsState } from "./srs";
 import { parseJsonBody } from "./http";
-import { dayStr, openDailyList } from "./daily-list";
+import { DAILY_ITEM_COUNTS_SQL, dayStr, openDailyList } from "./daily-list";
 import { submitDailyAnswer, type DailyAction } from "./daily-answer";
 
 const kid = new Hono<{ Bindings: Env }>();
@@ -233,9 +233,7 @@ kid.get("/home", async (c) => {
     "SELECT stars, streak_days FROM user_stats WHERE user_id=?"
   ).bind(userId).first<{ stars: number; streak_days: number }>();
   const dailyRow = await c.env.DB.prepare(
-    `SELECT h.study_date AS day, h.daily_limit AS dailyLimit,
-            COUNT(i.id) AS total,
-            COALESCE(SUM(CASE WHEN i.status = 'done' THEN 1 ELSE 0 END), 0) AS done
+    `SELECT h.study_date AS day, h.daily_limit AS dailyLimit, ${DAILY_ITEM_COUNTS_SQL}
      FROM daily_lists h
      LEFT JOIN daily_items i ON i.list_id = h.id
      WHERE h.user_id = ? AND h.study_date = ?

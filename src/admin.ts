@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import type { Env } from "./index";
 import { adminAuth } from "./auth";
 import { parseWordCsv } from "./csv";
+import { DAILY_ITEM_COUNTS_SQL, dayStr } from "./daily-list";
 import { parseJsonBody } from "./http";
+import { POOL_SENSES_SQL, readVocabulary } from "./vocabulary";
 
 const admin = new Hono<{ Bindings: Env }>();
 admin.use("*", adminAuth);
@@ -121,26 +123,54 @@ admin.post("/import", async (c) => {
 });
 
 admin.get("/progress", async (c) => {
-  const { results: users } = await c.env.DB.prepare(
-    "SELECT id, name, avatar FROM users ORDER BY id"
-  ).all<{ id: number; name: string; avatar: string }>();
-  const out = [];
-  for (const u of users) {
-    const st = await c.env.DB.prepare(
-      "SELECT stars, streak_days FROM user_stats WHERE user_id=?"
-    ).bind(u.id).first<{ stars: number; streak_days: number }>();
-    // mastered（已掌握）新世界口径（任务 7 简报裁定）：user_cards 行数 = 学过的词。
-    // 旧 user_word_state 换库后恒空，不再作为口径来源。
-    const mastered = await c.env.DB.prepare(
-      "SELECT COUNT(*) as n FROM user_cards WHERE user_id=?"
-    ).bind(u.id).first<{ n: number }>();
-    out.push({
-      id: u.id, name: u.name, avatar: u.avatar,
-      stars: st?.stars ?? 0, streak_days: st?.streak_days ?? 0,
-      mastered: mastered?.n ?? 0,
-    });
-  }
-  return c.json(out);
+  const { results } = await c.env.DB.prepare(`
+    WITH today AS (
+      SELECT h.user_id, h.study_date AS day, h.daily_limit AS dailyLimit, ${DAILY_ITEM_COUNTS_SQL}
+      FROM daily_lists h
+      LEFT JOIN daily_items i ON i.list_id = h.id
+      WHERE h.study_date = ?
+      GROUP BY h.id
+    ), pool_senses AS (${POOL_SENSES_SQL}), card_counts AS (
+      SELECT c.user_id, COUNT(*) AS mastered, COUNT(p.sense_id) AS practiced
+      FROM user_cards c LEFT JOIN pool_senses p ON p.sense_id = c.sense_id
+      GROUP BY c.user_id
+    )
+    SELECT u.id, u.name, u.avatar,
+           COALESCE(s.stars, 0) AS stars, COALESCE(s.streak_days, 0) AS streak_days,
+           COALESCE(c.mastered, 0) AS mastered, COALESCE(c.practiced, 0) AS practiced,
+           (SELECT COUNT(*) FROM pool_senses) AS poolTotal,
+           d.day, d.dailyLimit, d.total, d.done, d.correction, d.pending
+    FROM users u
+    LEFT JOIN user_stats s ON s.user_id = u.id
+    LEFT JOIN card_counts c ON c.user_id = u.id
+    LEFT JOIN today d ON d.user_id = u.id
+    ORDER BY u.id`
+  ).bind(dayStr(Date.now())).all<{
+    id: number; name: string; avatar: string; stars: number; streak_days: number; mastered: number;
+    practiced: number; poolTotal: number;
+    day: string | null; dailyLimit: number | null; total: number | null;
+    done: number | null; correction: number | null; pending: number | null;
+  }>();
+  return c.json(results.map(({ day, dailyLimit, total, done, correction, pending, practiced, poolTotal, ...user }) => ({
+    ...user,
+    daily: day === null ? null : { day, limit: dailyLimit, total, done, correction, pending },
+    pool: { practiced, total: poolTotal },
+  })));
+});
+
+admin.get("/vocabulary/:userId", async (c) => {
+  const userId = Number(c.req.param("userId"));
+  if (!Number.isSafeInteger(userId) || userId <= 0) return c.json({ error: "孩子编号无效" }, 400);
+
+  const db = c.env.DB;
+  const user = await db.prepare("SELECT id, name, avatar FROM users WHERE id = ?")
+    .bind(userId).first<{ id: number; name: string; avatar: string }>();
+  if (!user) return c.json({ error: "孩子不存在" }, 404);
+
+  const today = dayStr(Date.now());
+  const entries = await readVocabulary(db, userId);
+  c.header("Cache-Control", "no-store");
+  return c.json({ user, today, entries });
 });
 
 admin.post("/reset-progress", async (c) => {
@@ -190,6 +220,9 @@ admin.post("/reset-progress", async (c) => {
     stmts.push(db.prepare(
       `UPDATE user_stats SET stars=0, streak_days=0, last_play_date=NULL WHERE user_id IN (${placeholders})`
     ).bind(...user_ids));
+  }
+  // 卡片和清单按人维护。只有全局深度重置才清空这些记录。
+  if (deep && body.scope === "global") {
     // 深度重置覆盖新世界表（计划任务 7 验收点：全局重置+深度必须连 FSRS 卡与每日记录一起清）：
     //   - user_cards：该孩子的 FSRS 卡（首页"已学词"口径随之归零）；
     //   - daily_lists：list_id→daily_items 为 ON DELETE CASCADE，删清单连带删条目；
